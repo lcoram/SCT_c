@@ -34,10 +34,9 @@ laftot= land area fraction (the user can decide whether to use it in the interpo
 
 // Cristian's functions
 void spatial_consistency_test(int *box, double *boxCentre, int *numStationsInBox,
-                              double *x, double *y, double *z); // this is the interface to R
+                              double *x, double *y, double *z); // this is the interface to R (then need pointers)?
 
-double vertical_profile_optimizer(int n, double *z, double *t,
-    double t0, double gamma, double a, double h0, double h1i, double *t_out);
+double vertical_profile_optimizer(const gsl_vector *v, void *data); // GSL format
 
 void vertical_profile(int nz, double *z,
     double t0, double gamma, double a, double h0, double h1i, double *t_out);
@@ -75,11 +74,11 @@ int main()
   }
   //memset(z, 0, sizeof(double)*50000);
 
-  int s=150;
-  char line[s];
+  int lenLine=150;
+  char line[lenLine];
   char delim[] = ";";
 
-  while(fgets(line,s,fp)) { // loop through lines in file
+  while(fgets(line,lenLine,fp)) { // loop through lines in file
     //itot;pridtot;lon;lat;xtot;ytot;ztot;ttot;laftot;
     //printf("line: %s \n", line);
     char *ptr = strtok(line, delim);
@@ -100,10 +99,10 @@ int main()
         if(j == 6) { // elevation
           // keep the elevation values for oslo stations
           z[n] = atof(ptr);
-          n++;
         }
         if(j == 7) { // temperature
           t[n] = atof(ptr);
+          n++; // increment size of these arrays
         }
         //printf("%s\n", ptr);
       }
@@ -115,12 +114,18 @@ int main()
 
   fclose(fp);
 
-  //optim + tvert2prof to get the variables needed for vertical profile
+  // initial variables for VP
+  double gamma = 0.0065; // default?
+  double a = 5;
+
   double meanT = mean(t,n);
   double meanZ = mean(z,n);
 
   double exact_p10 = compute_quantile(0.10, z, n);
   double exact_p90 = compute_quantile(0.90, z, n);
+
+  // allocate for output
+  double *t_out = malloc(sizeof(double) * n);
 
   /*
   par<-c(mean(topt),argv$gamma.standard,5,
@@ -134,27 +139,79 @@ int main()
               h0=opt$par[4],
               h1i=opt$par[5])
   */
-  // parameters = meanT, gamma (default?), 5, exact_p10, exact_p90
-  double par[5] = {meanT,0.0065,5,exact_p10,exact_p90};
+  /* data (params) that needs to be passed into vp */
+  double nd = (double) n; // cast + resize to double
+  // data (double *n, double *z, double *t, double *t_out)
+  double * data[4] = {&nd, z, t, t_out};
 
-  // variables for VP
-  double gamma = 0.0065; // default
-  double a = 5;
-  double *t_new = malloc(sizeof(double) * n);
-  double *t_opt = malloc(sizeof(double) * n);
-
+  /* GSL stuff */
   // optimize inputs for VP
-  //opt = vertical_profile_optimizer(&n, z, t, t_opt, &meanT, &a, &exact_p10, &exact_p90, t_new);
+  const gsl_multimin_fminimizer_type *T =
+  gsl_multimin_fminimizer_nmsimplex2;
+  gsl_multimin_fminimizer *s = NULL;
+  gsl_vector *ss, *input;
+  gsl_multimin_function vp_optim;
 
+  int iter = 0;
+  int status;
+  double size;
 
+  // vector (double t0, double gamma, double a, double h0, double h1i)
+  /* Starting point for optimization */
+  input = gsl_vector_alloc(5);
+  gsl_vector_set(input,0,meanT);
+  gsl_vector_set(input,1,gamma);
+  gsl_vector_set(input,2,a);
+  gsl_vector_set(input,3,exact_p10);
+  gsl_vector_set(input,4,exact_p90);
+  printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+          meanT, gamma, a, exact_p10, exact_p90);
 
+  /* Set initial step sizes to 1 */
+  ss = gsl_vector_alloc (5);
+  gsl_vector_set_all (ss, 1.0);
 
-  //vertical_profile(&n, z, &t0, &gamma, &a, &exact_p10, &exact_p90, t_new);
+  /* Initialize method and iterate */
+  vp_optim.n = 5;
+  vp_optim.f = vertical_profile_optimizer;
+  vp_optim.params = data;
+
+  s = gsl_multimin_fminimizer_alloc (T, 5);
+  gsl_multimin_fminimizer_set (s, &vp_optim, input, ss);
+  do
+    {
+      iter++;
+      status = gsl_multimin_fminimizer_iterate(s);
+
+      if (status)
+        break;
+
+      size = gsl_multimin_fminimizer_size (s);
+      status = gsl_multimin_test_size (size, 1e-2);
+
+      if (status == GSL_SUCCESS)
+        {
+          printf ("converged to minimum at\n");
+        }
+
+      printf ("iter= %5d f()= %10.3e size= %.3f\n", iter, s->fval, size);
+      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+              gsl_vector_get (s->x, 0),
+              gsl_vector_get (s->x, 1),
+              gsl_vector_get (s->x, 2),
+              gsl_vector_get (s->x, 3),
+              gsl_vector_get (s->x, 4));
+    }
+  while (status == GSL_CONTINUE && iter < 100);
+
+  gsl_vector_free(input);
+  gsl_vector_free(ss);
+  gsl_multimin_fminimizer_free (s);
+
 
 
   // variables for SCT
   // 266;-247429.070909252;-365421.526660934;3466;
-
   int box = 266;
   double boxCentre[2];
   boxCentre[0] = -247429.070909252;
@@ -191,10 +248,27 @@ te<-tvertprof(z=zopt,t0=par[1],gamma=par[2],a=par[3],h0=par[4],h1i=par[5])
 return(log((mean((te-topt)**2))**0.5))
 }
 */
-double vertical_profile_optimizer(int n, double *z, double *t,
-    double t0, double gamma, double a, double h0, double h1i, double *t_out)
+// vector (double t0, double gamma, double a, double h0, double h1i)
+// data (int n, double *z, double *t, double *t_out)
+double vertical_profile_optimizer(const gsl_vector *v, void *data)
 {
-  vertical_profile(n, z, t0, gamma, a, h0, h1i, t_out);
+  // my input data
+  double **p = (double **)data;
+  int n = (int) *p[0]; // is of type double but should be an int
+  double *z = p[1];
+  double *t = p[2];
+  double *t_out = p[3];
+
+  // the parameters to mess with
+  double t0 = gsl_vector_get(v,0);
+  double gamma = gsl_vector_get(v,1);
+  double a = gsl_vector_get(v,2);
+  double h0 = gsl_vector_get(v,3);
+  double h1i = gsl_vector_get(v,4);
+
+  // give everything to vp to compute t_out
+  vertical_profile(n, z, t0, gamma, h0, h0, h1i, t_out);
+  // RMS
   double total = 0;
   for(int i=0; i<n; i++) {
     total += pow((t[i]-t_out[i]),2);
