@@ -36,7 +36,8 @@ laftot= land area fraction (the user can decide whether to use it in the interpo
 void spatial_consistency_test(int *box, double *boxCentre, int *numStationsInBox,
                               double *x, double *y, double *z); // this is the interface to R (then need pointers)?
 
-double vertical_profile_optimizer(const gsl_vector *v, void *data); // GSL format
+int vertical_profile_optimizer(gsl_vector *input, double **data);
+double vertical_profile_optimizer_function(const gsl_vector *v, void *data); // GSL format
 
 void vertical_profile(int nz, double *z,
     double t0, double gamma, double a, double h0, double h1i, double *t_out);
@@ -144,21 +145,9 @@ int main()
   // data (double *n, double *z, double *t, double *t_out)
   double * data[4] = {&nd, z, t, t_out};
 
-  /* GSL stuff */
-  // optimize inputs for VP
-  const gsl_multimin_fminimizer_type *T =
-  gsl_multimin_fminimizer_nmsimplex2;
-  gsl_multimin_fminimizer *s = NULL;
-  gsl_vector *ss, *input;
-  gsl_multimin_function vp_optim;
-
-  int iter = 0;
-  int status;
-  double size;
-
   // vector (double t0, double gamma, double a, double h0, double h1i)
   /* Starting point for optimization */
-  input = gsl_vector_alloc(5);
+  gsl_vector *input = gsl_vector_alloc(5);
   gsl_vector_set(input,0,meanT);
   gsl_vector_set(input,1,gamma);
   gsl_vector_set(input,2,a);
@@ -167,47 +156,15 @@ int main()
   printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
           meanT, gamma, a, exact_p10, exact_p90);
 
-  /* Set initial step sizes to 1 */
-  ss = gsl_vector_alloc (5);
-  gsl_vector_set_all (ss, 1.0);
-
-  /* Initialize method and iterate */
-  vp_optim.n = 5;
-  vp_optim.f = vertical_profile_optimizer;
-  vp_optim.params = data;
-
-  s = gsl_multimin_fminimizer_alloc (T, 5);
-  gsl_multimin_fminimizer_set (s, &vp_optim, input, ss);
-  do
-    {
-      iter++;
-      status = gsl_multimin_fminimizer_iterate(s);
-
-      if (status)
-        break;
-
-      size = gsl_multimin_fminimizer_size (s);
-      status = gsl_multimin_test_size (size, 1e-2);
-
-      if (status == GSL_SUCCESS)
-        {
-          printf ("converged to minimum at\n");
-        }
-
-      printf ("iter= %5d f()= %10.3e size= %.3f\n", iter, s->fval, size);
-      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-              gsl_vector_get (s->x, 0),
-              gsl_vector_get (s->x, 1),
-              gsl_vector_get (s->x, 2),
-              gsl_vector_get (s->x, 3),
-              gsl_vector_get (s->x, 4));
-    }
-  while (status == GSL_CONTINUE && iter < 100);
-
-  gsl_vector_free(input);
-  gsl_vector_free(ss);
-  gsl_multimin_fminimizer_free (s);
-
+  int status = vertical_profile_optimizer(input, data);
+  printf("status: %d\n", status);
+  printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+            gsl_vector_get (input, 0),
+            gsl_vector_get (input, 1),
+            gsl_vector_get (input, 2),
+            gsl_vector_get (input, 3),
+            gsl_vector_get (input, 4));
+  //gsl_vector_free(input);
 
 
   // variables for SCT
@@ -241,6 +198,69 @@ int main()
 }
 
 //----------------------------------------------------------------------------//
+int vertical_profile_optimizer(gsl_vector *input, double **data)
+{
+  // optimize inputs for VP (using Nelder-Mead Simplex algorithm)
+  const gsl_multimin_fminimizer_type *T = gsl_multimin_fminimizer_nmsimplex2;
+  gsl_multimin_fminimizer *s = NULL;
+  gsl_vector *ss;
+  gsl_multimin_function vp_optim;
+
+  int iter = 0;
+  int status;
+  double size;
+
+  /* Set initial step sizes to 1 */
+  ss = gsl_vector_alloc (5);
+  gsl_vector_set_all (ss, 1.0);
+
+  /* Initialize method and iterate */
+  vp_optim.n = 5;
+  vp_optim.f = vertical_profile_optimizer_function;
+  vp_optim.params = data;
+
+  s = gsl_multimin_fminimizer_alloc (T, 5);
+  gsl_multimin_fminimizer_set (s, &vp_optim, input, ss);
+  do
+    {
+      iter++;
+      status = gsl_multimin_fminimizer_iterate(s);
+
+      if (status)
+        break;
+
+      size = gsl_multimin_fminimizer_size (s);
+      status = gsl_multimin_test_size (size, 1e-2);
+
+      if (status == GSL_SUCCESS)
+        {
+          printf ("converged to minimum at\n");
+        }
+
+      printf ("iter= %5d f()= %10.3e size= %.3f\n", iter, s->fval, size);
+      /*
+      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+              gsl_vector_get (s->x, 0),
+              gsl_vector_get (s->x, 1),
+              gsl_vector_get (s->x, 2),
+              gsl_vector_get (s->x, 3),
+              gsl_vector_get (s->x, 4));
+              */
+    }
+  while (status == GSL_CONTINUE && iter < 100);
+
+  gsl_vector_set(input,0,gsl_vector_get(s->x, 0));
+  gsl_vector_set(input,1,gsl_vector_get(s->x, 1));
+  gsl_vector_set(input,2,gsl_vector_get(s->x, 2));
+  gsl_vector_set(input,3,gsl_vector_get(s->x, 3));
+  gsl_vector_set(input,4,gsl_vector_get(s->x, 4));
+
+  gsl_vector_free(ss);
+  gsl_multimin_fminimizer_free (s);
+  return status;
+}
+
+//----------------------------------------------------------------------------//
 /*
 #+ cost function used for optimization of tvertprof parameter
 tvertprof2opt<-function(par) {
@@ -250,7 +270,7 @@ return(log((mean((te-topt)**2))**0.5))
 */
 // vector (double t0, double gamma, double a, double h0, double h1i)
 // data (int n, double *z, double *t, double *t_out)
-double vertical_profile_optimizer(const gsl_vector *v, void *data)
+double vertical_profile_optimizer_function(const gsl_vector *v, void *data)
 {
   // my input data
   double **p = (double **)data;
