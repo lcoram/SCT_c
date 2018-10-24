@@ -114,15 +114,16 @@ int main()
     }
   }
   printf("Number of stations in Oslo box: %i \n", n);
+  printf("Mean x: %f y: %f z: %f \n", mean(x,n), mean(y,n), mean(z,n));
+  printf("Mean t: %f\n", mean(t,n));
 
   fclose(fp);
 
-  // initial variables for VP
+  // initial variables for VP (first guess, adjusted during optimization)
   double gamma = 0.0065; // default?
   double a = 5;
 
   double meanT = mean(t,n);
-  double meanZ = mean(z,n);
 
   double exact_p10 = compute_quantile(0.10, z, n);
   double exact_p90 = compute_quantile(0.90, z, n);
@@ -161,7 +162,8 @@ int main()
   gsl_vector_free(input);
 
   // variables for SCT
-  int t2 = 25;
+  int t2 = 25; // input by user into SCT function
+  
     // 266;-247429.070909252;-365421.526660934;3466;
   int box = 266;
   double boxCentre[2];
@@ -277,9 +279,9 @@ double vertical_profile_optimizer_function(const gsl_vector *v, void *data)
   for(int i=0; i<n; i++) {
     total += pow((t[i]-t_out[i]),2);
   }
-  double mean = total / n;
+  double value = total / n;
   // Do not need the log?
-  return mean;
+  return value;
 }
 
 
@@ -305,22 +307,28 @@ tvertprof<-function(z,t0,gamma,a,h0,h1i) {
 void vertical_profile(int nz, double *z,
     double t0, double gamma, double a, double h0, double h1i, double *t_out)
 {
-  double h1 = h0 + fabs(h1i);
+  double h1 = h0 + fabs(h1i); // h1<-h0+abs(h1i)
   // loop over the array of elevations (z)
-  // t is an empty array of length nz (e.g. the same length as z)
+  // t_out is an empty array of length nz (e.g. the same length as z)
   for(int i=0; i<nz; i++) {
     // define some bools
-    bool z_le_h0 = z[i] <= h0;
-    bool z_ge_h1 = z[i] >= h1;
-    bool z_in = (z[i]>h0 && z[i]<h1);
+    bool z_le_h0 = z[i] <= h0; // z.le.h0<-which(z<=h0)
+    bool z_ge_h1 = z[i] >= h1; // z.ge.h1<-which(z>=h1)
+    bool z_in = (z[i]>h0 && z[i]<h1); // z.in<-which(z>h0 & z<h1)
     if(z_le_h0) {
+      // t[z.le.h0]<-t0-gamma*z[z.le.h0]-a
       t_out[i] = t0-gamma*z[i]-a;
+      //printf("calling vp 1: %f \n", t_out[i]);
     }
     if(z_ge_h1) {
+      // t[z.ge.h1]<-t0-gamma*z[z.ge.h1]
       t_out[i] = t0-gamma*z[i];
+      //printf("calling vp 2: %f \n", t_out[i]);
     }
     if(z_in) {
+      // t[z.in]<-t0-gamma*z[z.in]-a/2*(1+cos(pi*(z[z.in]-h0)/(h1-h0)))
       t_out[i] = t0-gamma*z[i]-a/2*(1+cos(M_PI*(z[i]-h0)/(h1-h0)));
+      //printf("calling vp 3: %f \n", t_out[i]);
     }
   }
 }
@@ -370,16 +378,20 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
   */
   double** disth = malloc(sizeof(double*)*n);
   double** distz = malloc(sizeof(double*)*n);
+  double *Dh = malloc(sizeof(double)*n);
   // no need to select j since already only have those for a particular box
   // outer product of the matrices
   for(int i=0; i<n; i++) {
     disth[i] = malloc(sizeof(double)*n);
     distz[i] = malloc(sizeof(double)*n);
+    double *Dh_vector = malloc(sizeof(double)*n);
     for(int j=0; j<n; j++) {
       //printf("i %i j %i \n", i, j);
       disth[i][j] = pow((pow((x[i]-x[j]),2)+pow((y[i]-y[j]),2)),0.5);
       distz[i][j] = abs(z[i]-z[j]);
+      Dh_vector[j] = disth[i][j];
     }
+    Dh[i] = compute_quantile(0.10, Dh_vector, n);
   }
   /*
   # set to optimal Dh for the SCT
@@ -388,28 +400,20 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
   Dh<-max(Dhmin,
   mean(apply(cbind(1:nrow(disth),disth),MARGIN=1,FUN=function(x){
      as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],probs=0.1))})))
-  # background error correlation matrix
-  S = exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
   */
-  // for each station what is the 10 percentile of the distance between that station and all the others
-  // for all the stations and take the mean
-  double Dhmin = 10000;
-  double Dzmin = 30;
   int Dz = 200; // good value (use this default)
-  // use these defaults for now, TODO: compute
+  double Dh_mean = mean(Dh,n);
+  printf("Dh: %f\n", Dh_mean);
 
-
-  //double** S = malloc(sizeof(double*)*n);
+  // background error correlation matrix
   gsl_matrix *S, *Sinv;
   S = gsl_matrix_alloc(n,n);
   Sinv = gsl_matrix_alloc(n,n);
   for(int i=0; i<n; i++) {
-    //S[i] = malloc(sizeof(double)*n);
     for(int j=0; j<n; j++) {
-      //S[i][j] = exp(-.5*pow((disth[i][j]/Dhmin),2)-.5*pow((distz[i][j]/Dzmin),2));
-      double value = exp(-.5*pow((disth[i][j]/Dhmin),2)-.5*pow((distz[i][j]/Dzmin),2));
-      if(i == j) { // weight the diagonal (0.5 default)
-        //gsl_matrix_diagonal(S_gsl);
+      //  S = exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
+      double value = exp(-.5*pow((disth[i][j]/Dh_mean),2)-.5*pow((distz[i][j]/Dz),2));
+      if(i == j) { // weight the diagonal?? (0.5 default)
         //value = value *0.5;
       }
       gsl_matrix_set(S,i,j,value);
@@ -427,7 +431,7 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
   for(int i=0; i<n; i++) {
     // initialize with 0 (flag no stations)
     stationFlags[i] = 0;
-    gsl_vector_set(d,i,(t[i]-vp[i])); // difference between temp and temperature from vertical profile
+    gsl_vector_set(d,i,(t[i]-vp[i])); // difference between actual temp and temperature from vertical profile
   }
 
   // now loop for SCT
@@ -454,12 +458,8 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
       rm(aux)
       */
       // take out the stations that we have decided to remove
-
-
-
     }
 
-    gsl_vector_view diagSinv = gsl_matrix_diagonal(Sinv); // diagonal of Sinv
     gsl_vector *Zinv, *Sinv_d, *ares_temp, *ares;
     Zinv = gsl_vector_alloc(n);
     Sinv_d = gsl_vector_alloc(n);
@@ -469,8 +469,11 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
     gsl_blas_dgemv(CblasNoTrans, 1, Sinv, d, 1, Sinv_d); // crossprod Sinv & d to create Sinv_d
     gsl_blas_dgemv(CblasNoTrans, 1, S, Sinv_d, 1, ares_temp); // crossprod S and Sinv_d to create ares_temp
     for(int i=0; i<n; i++) {
-      gsl_vector_set(Zinv,i,(1/gsl_vector_get(&diagSinv.vector,i))); //Zinv<-1/diag(SRinv)
+      gsl_vector_set(Zinv,i,(1/gsl_matrix_get(Sinv,i,i))); //Zinv<-1/diag(SRinv)
       gsl_vector_set(ares,i,(gsl_vector_get(ares_temp,i)-gsl_vector_get(d,i))); // ares<-crossprod(S,SRinv.d)-d[sel]
+      if(abs(gsl_vector_get(ares,i)) > 1) {
+        printf("abs(ares)>1: %i, %f\n", i, gsl_vector_get(ares,i));
+      }
     }
     gsl_vector_free(ares_temp);
 
@@ -525,14 +528,19 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
     }
     printf("throw out: %i \n",throwOut);
 
-  break;
+  // FREE ALL THE MEMORY !!!
+  gsl_matrix_free(S);
+  gsl_matrix_free(Sinv);
+  gsl_vector_free(d);
+  gsl_vector_free(Zinv);
+  gsl_vector_free(Sinv_d);
+  gsl_vector_free(ares);
+  gsl_vector_free(cvres);
+  gsl_vector_free(pog);
+
+  break; // have not currently implemented more than one loop...
   }
   // end of while SCT loop
-
-
-
-  // FREE ALL THE MEMORY !!!
-  //gsl_matrix_free(S);
 
 }
 
@@ -555,14 +563,12 @@ double compute_quantile(double quantile, double *array, int sizeArray)
   double val_q;
   size_t i;
   /* add data to quantile accumulators; also store data for exact comparisons */
-  for (i = 0; i < sizeArray; ++i)
-    {
+  for (i = 0; i < sizeArray; ++i) {
       gsl_rstat_quantile_add(array[i], work_q);
-    }
+  }
   /* exact values*/
   gsl_sort(array, 1, sizeArray);
   exact_q = gsl_stats_quantile_from_sorted_data(array, 1, sizeArray, quantile);
-
   /* estimated values */
   val_q = gsl_rstat_quantile_get(work_q);
   //printf ("%.5f quartile: exact = %.5f, estimated = %.5f, error = %.6e\n",
@@ -574,8 +580,7 @@ double compute_quantile(double quantile, double *array, int sizeArray)
 double mean(double *array, int sizeArray)
 {
   double sum = 0;
-  for(int i=0; i<sizeArray; i++)
-  {
+  for(int i=0; i<sizeArray; i++) {
     sum = sum + array[i];
   }
   double mean = sum/sizeArray;
