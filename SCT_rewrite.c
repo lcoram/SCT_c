@@ -49,10 +49,10 @@ void vertical_profile(int nz, double *z,
 gsl_vector* remove_elem_vec(int n, int i, gsl_vector *vector);
 gsl_matrix* remove_col(int num_row, int num_col, int i, gsl_matrix *matrix);
 gsl_matrix* remove_row(int num_row, int num_col, int i, gsl_matrix *matrix);
-gsl_matrix* invert_matrix(gsl_matrix *matrix, int size);
 double compute_quantile(double quantile, double *array, int sizeArray);
 double mean(double *array, int sizeArray);
 void print_matrix(int rows, int colums, gsl_matrix *matrix);
+gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 int main()
 {
@@ -131,7 +131,7 @@ int main()
 
   // write just the oslo box stuff to a file for testing
   //FILE *out;
-  //out = fopen("oslo.txt", "w");
+  //out = fopen("289.txt", "w");
 
   // arrays z (elevation), x,y easting and northing coords
   double *z; // array do not know size of yet
@@ -161,7 +161,8 @@ int main()
     bool mybox = false;
     while(ptr != NULL) { // break up line
       // if itot == 266 then in oslo box
-      if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
+      if(j==0 && (strcmp(ptr, "289")==0 || strcmp(ptr, " 289")==0 )) {
+      //if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
         mybox = true;
       }
       if(mybox) {
@@ -254,14 +255,19 @@ int main()
   gsl_vector_free(input);
 
   // variables for SCT
-  int t2 = 25; // input by user into SCT function
+  int t2 = 16; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
 
   // 266;-247429.070909252;-365421.526660934;3466;
   // 231;138052.134064877;-158863.717647031;30;
-  int box = 266;
+  //  262;-555814.034888555;-365421.526660934;590;
+  // 289;-16140.3479247747;-468700.431167886;90;
+  //int box = 266;
+  int box = 289;
   double boxCentre[2];
-  boxCentre[0] = -247429.070909252;
-  boxCentre[1] = -365421.526660934;
+  boxCentre[0] = -16140.3479247747;
+  boxCentre[1] = -468700.431167886;
+  //boxCentre[0] = -247429.070909252;
+  //boxCentre[1] = -365421.526660934;
   int numStationsInBox = n;
   printf("num stations: %d\n", n);
 
@@ -548,7 +554,7 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
       gsl_matrix_set(Sinv,i,j,value); // not yet inverted, but need a copy of S
     }
   }
-  printf("created the S matrix\n");
+  printf("created the S matrix - size1 %lu size2 %lu \n", S->size1, S->size2);
   //print_matrix(n,n,S);
 
   gsl_vector *stationFlags;
@@ -564,85 +570,123 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
 
   bool first = true;
   int current_n = n;
+  int throwOut = 0;
     // now loop for SCT
   while(1) {
-    int throwOut;
     if(first) {
       // if first time then invert matrix
       clock_t start = clock(), diff;
-      //Sinv = invert_matrix(S,n);
-      gsl_linalg_cholesky_decomp(Sinv);
-      gsl_linalg_cholesky_invert(Sinv); // in place
+      // Sinv is currently a copy of S
+      Sinv = inverse_matrix(S);
+      //gsl_linalg_cholesky_decomp1(Sinv);
+      //gsl_linalg_cholesky_invert(Sinv); // in place
       diff = clock() - start;
       int msec = diff * 1000 / CLOCKS_PER_SEC;
       printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+      // UN-weight the diagonal of S
+      for(int i=0; i<current_n; i++) {
+        // TODO: make this added value user provided
+        double value = gsl_matrix_get(S,i,i) - 0.5;
+        gsl_matrix_set(S,i,i,value);
+      }
       // no longer the first iteration
       first = false;
     }
     else { // not first time
-      for(int i=0; i<current_n; i++) {
-        int sf = gsl_vector_get(stationFlags,i);
-        if(sf == 1) {
-          printf("Updating vector and matrix (to remove stations)- current n %i i %i \n", current_n, i);
-          //printf("stationFlags size %lu \n", stationFlags->size);
-          //printf("d size %lu \n", d->size);
-          //printf("S size1 %lu size2 %lu \n", S->size1, S->size2);
-          // update stationFlags
-          gsl_vector *sf_temp = remove_elem_vec(current_n,i,stationFlags);
-          gsl_vector_free(stationFlags);
-          stationFlags = gsl_vector_alloc(current_n-1);
-          gsl_vector_memcpy (stationFlags, sf_temp);
-          gsl_vector_free(sf_temp);
-          // update S
-          gsl_matrix *s_temp = remove_col(current_n, current_n, i, S);
-          gsl_matrix_free(S);
-          S = gsl_matrix_alloc(current_n-1,current_n-1);
-          S = remove_row(current_n, current_n-1, i, s_temp);
-          gsl_matrix_free(s_temp);
-          // update d
-          gsl_vector *d_temp = remove_elem_vec(current_n,i,d);
-          gsl_vector_free(d);
-          d = gsl_vector_alloc(current_n-1);
-          gsl_vector_memcpy (d, d_temp);
-          gsl_vector_free(d_temp);
-          current_n -= 1;
+      if (throwOut > 0) { // change to "else if ( >1 ) if implement the shortcut
+        /*
+        S<-S[-indx,-indx]
+        eps2.vec<-eps2.vec[-indx]
+        diag(S)<-diag(S)+eps2.vec
+        SRinv<-chol2inv(chol(S))
+        # from S+R go back to S
+        diag(S)<-diag(S)-eps2.vec
+        */
+        for(int i=0; i<current_n; i++) {
+          int sf = gsl_vector_get(stationFlags,i);
+          if(sf == 1) {
+            printf("Removing stations - current n: %i, i: %i \n", current_n, i);
+            //printf("stationFlags size %lu \n", stationFlags->size);
+            //printf("d size %lu \n", d->size);
+            //printf("S size1 %lu size2 %lu \n", S->size1, S->size2);
+            // update stationFlags
+            gsl_vector *sf_temp = remove_elem_vec(current_n,i,stationFlags);
+            gsl_vector_free(stationFlags);
+            stationFlags = gsl_vector_alloc(current_n-1);
+            gsl_vector_memcpy (stationFlags, sf_temp);
+            gsl_vector_free(sf_temp);
+            // update S
+            gsl_matrix *s_temp = remove_col(current_n, current_n, i, S);
+            gsl_matrix_free(S);
+            S = gsl_matrix_alloc(current_n-1,current_n-1);
+            S = remove_row(current_n, current_n-1, i, s_temp);
+            gsl_matrix_free(s_temp);
+            // update d
+            gsl_vector *d_temp = remove_elem_vec(current_n,i,d);
+            gsl_vector_free(d);
+            d = gsl_vector_alloc(current_n-1);
+            gsl_vector_memcpy (d, d_temp);
+            gsl_vector_free(d_temp);
+            current_n -= 1;
+          }
+        }
+        assert(stationFlags->size == current_n);
+        assert(d->size == current_n);
+        assert(S->size1 == current_n);
+        assert(S->size2 == current_n);
+
+        // weight the diagonal again
+        for(int i=0; i<current_n; i++) {
+          // TODO: make this added value user provided
+          double value = gsl_matrix_get(S,i,i) + 0.5;
+          gsl_matrix_set(S,i,i,value);
+        }
+        gsl_matrix_free(Sinv); // free the old Sinv
+        Sinv = gsl_matrix_alloc(current_n,current_n);
+        gsl_matrix_memcpy (Sinv, S);
+
+        clock_t start = clock(), diff;
+        // Sinv is currently a copy of S
+        Sinv = inverse_matrix(S);
+        //gsl_linalg_cholesky_decomp1(Sinv);
+        //gsl_linalg_cholesky_invert(Sinv); // in place
+        diff = clock() - start;
+        int msec = diff * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+        gsl_matrix *temp = gsl_matrix_alloc(5, 5);
+        gsl_matrix_view in_view = gsl_matrix_submatrix (S, 0, 0, 5, 5);
+        gsl_matrix_memcpy (temp, &in_view.matrix);
+        print_matrix(5, 5, temp);
+         in_view = gsl_matrix_submatrix (Sinv, 0, 0, 5, 5);
+        gsl_matrix_memcpy (temp, &in_view.matrix);
+        print_matrix(5, 5, temp);
+
+
+        // UN-weight the diagonal of S
+        for(int i=0; i<current_n; i++) {
+          // TODO: make this added value user provided
+          double value = gsl_matrix_get(S,i,i) - 0.5;
+          gsl_matrix_set(S,i,i,value);
         }
       }
-      assert(stationFlags->size == current_n);
-      assert(d->size == current_n);
-      assert(S->size1 == current_n);
-      assert(S->size2 == current_n);
+      // implent to remove only one station at once (faster?)
+      //else { //throwout == 1
+        /*
+        # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
+        aux<-SRinv
+        SRinv<-aux[-indx,-indx]-(tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
+        S<-S[-indx,-indx]
+        eps2.vec<-eps2.vec[-indx]
+        rm(aux)
 
-      gsl_matrix_free(Sinv);
-      Sinv = gsl_matrix_alloc(current_n,current_n);
-      gsl_matrix_memcpy (Sinv, S);
+        aux = gsl_matrix_alloc(current_n,current_n);
+        gsl_matrix_transpose_memcpy(aux, Sinv); // aux is now the transpose of Sinv
 
-      clock_t start = clock(), diff;
-      //Sinv = invert_matrix(S,current_n);
-      gsl_linalg_cholesky_decomp(Sinv);
-      gsl_linalg_cholesky_invert(Sinv); // in place
-      diff = clock() - start;
-      int msec = diff * 1000 / CLOCKS_PER_SEC;
-      printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
-      /*
-    } else if (length(indx)>1) {
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      diag(S)<-diag(S)+eps2.vec
-      SRinv<-chol2inv(chol(S))
-      # from S+R go back to S
-      diag(S)<-diag(S)-eps2.vec
-    }
-    // implent to remove only one station at once (faster?)
-      else {
-      # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
-      aux<-SRinv
-      SRinv<-aux[-indx,-indx]-
-             (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      rm(aux)
-    } */
+        gsl_matrix_free(aux);
+        */
+      //}
     }
     printf("Current n (end of matrix and vector updates) %i \n", current_n);
     printf("d size %lu \n", d->size);
@@ -651,6 +695,7 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
     assert(d->size == current_n);
     assert(S->size1 == current_n);
     assert(S->size2 == current_n);
+    assert(current_n > 0); // Should hopefully not throw out all the stations...
 
     gsl_vector *Zinv, *Sinv_d, *ares_temp, *ares;
     Zinv = gsl_vector_alloc(current_n);
@@ -692,6 +737,12 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
     gsl_vector_free(sig2o_temp);
     gsl_vector_free(negAres_temp);
 
+    //assert(sig2o > 0); // really should never have negative sig2o
+    //if (sig2o<0.01) sig2o<-0.01       # safe threshold
+    if(sig2o < 0.01) {
+      sig2o = 0.01;
+    }
+
     // pog[sel]<-(ares*cvres)/sig2o
     gsl_vector *pog, *pog_temp;
     pog = gsl_vector_alloc(current_n);
@@ -707,7 +758,7 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
     gsl_vector_free(pog_temp);
 
     // figure out if we should flag a station
-    throwOut = 0;
+    throwOut = 0; // reset this number
     for(int i=0; i<current_n; i++) {
       // haven't already thrown it out
       int sf = gsl_vector_get(stationFlags,i);
@@ -738,7 +789,6 @@ void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStat
   //break; // have not currently implemented more than one loop...
   }
   // end of while SCT loop
-
 }
 
 //----------------------------------------------------------------------------//
@@ -754,7 +804,10 @@ gsl_vector* remove_elem_vec(int n, int i, gsl_vector *vector) {
   if (i==0){ // if its the first row then only have to shift one way
     in_view  = gsl_vector_subvector (vector, 1, n-1);
     gsl_vector_memcpy (out_vector, &in_view.vector);
-  } else { // else have to shift both sides
+  } else if (i==n-1){ // if its the last row then only have to shift one way
+    in_view  = gsl_vector_subvector (vector, 0, n-1);
+    gsl_vector_memcpy (out_vector, &in_view.vector);
+  }  else { // else have to shift both sides
     in_view  = gsl_vector_subvector (vector, 0, i);
     out_view = gsl_vector_subvector (out_vector, 0, i);
     gsl_vector_memcpy (&out_view.vector, &in_view.vector);
@@ -777,6 +830,9 @@ gsl_matrix* remove_col(int num_row, int num_col, int i, gsl_matrix *matrix) {
   if (i==0){ // if its the first row then only have to shift one way
     in_view  = gsl_matrix_submatrix (matrix, 0, 1, num_row, num_col-1);
     gsl_matrix_memcpy (out_matrix, &in_view.matrix);
+  } else if (i==num_col-1){ // if its the last row then only have to shift one way
+      in_view  = gsl_matrix_submatrix (matrix, 0, 0, num_row, num_col-1);
+      gsl_matrix_memcpy (out_matrix, &in_view.matrix);
   } else { // else have to shift both sides
     in_view  = gsl_matrix_submatrix (matrix, 0, 0, num_row, i);
     out_view = gsl_matrix_submatrix (out_matrix, 0, 0, num_row, i);
@@ -800,6 +856,9 @@ gsl_matrix* remove_row(int num_row, int num_col, int i, gsl_matrix *matrix) {
   if (i==0){ // if its the first row then only have to shift one way
     in_view  = gsl_matrix_submatrix (matrix, 1, 0, num_row-1, num_col);
     gsl_matrix_memcpy (out_matrix, &in_view.matrix);
+  } else if (i==num_row-1){ // if its the last row then only have to shift one way
+    in_view  = gsl_matrix_submatrix (matrix, 0, 0, num_row-1, num_col);
+    gsl_matrix_memcpy (out_matrix, &in_view.matrix);
   } else { // else have to shift both sides
     in_view  = gsl_matrix_submatrix (matrix, 0, 0, i, num_col);
     out_view = gsl_matrix_submatrix (out_matrix, 0, 0, i, num_col);
@@ -810,21 +869,6 @@ gsl_matrix* remove_row(int num_row, int num_col, int i, gsl_matrix *matrix) {
   }
   //printf("removed row - rows: %i cols: %i \n", num_row-1, num_col);
   return out_matrix;
-}
-
-gsl_matrix* invert_matrix(gsl_matrix *matrix, int size)
-{
-  gsl_permutation *p = gsl_permutation_alloc(size);
-  int s;
-  //printf("invert matrix - passed in size: %i matrix size: %lu %lu \n", size, matrix->size1, matrix->size2);
-  gsl_linalg_LU_decomp(matrix,p,&s);
-
-  gsl_matrix *matrix_inv = gsl_matrix_alloc(size,size);
-  gsl_linalg_LU_invert(matrix,p,matrix_inv);
-
-  gsl_permutation_free(p);
-
-  return matrix_inv;
 }
 
 double compute_quantile(double quantile, double *array, int sizeArray)
@@ -869,4 +913,18 @@ void print_matrix(int rows, int columns, gsl_matrix *matrix) {
           }
       printf("\n");
    }
+}
+
+gsl_matrix* inverse_matrix(const gsl_matrix *matrix) {
+  int s;
+  gsl_matrix *return_matrix = gsl_matrix_alloc(matrix->size1,matrix->size2);
+  gsl_matrix *temp_matrix = gsl_matrix_alloc(matrix->size1,matrix->size2);
+  gsl_matrix_memcpy(temp_matrix, matrix);
+  gsl_permutation * p = gsl_permutation_alloc (matrix->size1);
+
+  gsl_linalg_LU_decomp (temp_matrix, p, &s);
+  gsl_linalg_LU_invert (temp_matrix, p, return_matrix);
+  gsl_matrix_free(temp_matrix);
+  gsl_permutation_free (p);
+  return return_matrix;
 }
