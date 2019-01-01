@@ -37,7 +37,7 @@ laftot= land area fraction (the user can decide whether to use it in the interpo
 
 // Cristian's functions
 void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numStationsInBox,
-                              double *x, double *y, double *z, double *t, double *vp); // this is the interface to R (then need pointers)?
+                             double *x, double *y, double *z, double *t, double *vp); // this is the interface to R (then need pointers)?
 
 int vertical_profile_optimizer(gsl_vector *input, double **data);
 double vertical_profile_optimizer_function(const gsl_vector *v, void *data); // GSL format
@@ -47,189 +47,283 @@ void vertical_profile(int nz, double *z,
 
 
 // helpers
-gsl_vector* remove_elem_vec(int n, int i, gsl_vector *vector);
-gsl_matrix* remove_col(int num_row, int num_col, int i, gsl_matrix *matrix);
-gsl_matrix* remove_row(int num_row, int num_col, int i, gsl_matrix *matrix);
 double compute_quantile(double quantile, double *array, int sizeArray);
 double mean(const double *array, int sizeArray);
-void print_matrix(int rows, int colums, gsl_matrix *matrix);
-void print_sub_matrix(gsl_matrix *matrix, int start, int stop);
+void print_vector(double *vector, int size);
+void print_gsl_vector(gsl_vector *vector, int size);
+void print_matrix(double **matrix, int rows, int columns);
+void print_gsl_matrix(gsl_matrix *matrix, int rows, int columns);
+void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop);
 
 gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 int main()
 {
-  // Testing functions from main, but eventually have to call it from R code
-  FILE *fp;
-  char *filename = "/home/louiseo/Documents/SCT/myrepo/input_for_example.txt";
-  fp = fopen(filename, "r");
-  if(fp == NULL) {
-      printf("could not open file: %s \n", filename);
-      return 1;
-  }
-  printf("opened file: %s \n", filename);
-
-  // write just the oslo box stuff to a file for testing
-  //FILE *out;
-  //out = fopen("289.txt", "w");
-
-  // arrays z (elevation), x,y easting and northing coords
-  double *z; // array do not know size of yet
-  double *x;
-  double *y;
-  double *t;
-  z = malloc(sizeof(double) * 50000);
-  x = malloc(sizeof(double) * 50000);
-  y = malloc(sizeof(double) * 50000);
-  t = malloc(sizeof(double) * 50000);
-  int n = 0;
-  if (!z || !x || !y || !t) { /* If data == 0 after the call to malloc, allocation failed for some reason */
-    printf("Error allocating memory \n");
-    return 1;
-  }
-  //memset(z, 0, sizeof(double)*50000);
-
-  int lenLine=150;
-  char line[lenLine];
-  char delim[] = ";";
-
-  while(fgets(line,lenLine,fp)) { // loop through lines in file
-    //itot;pridtot;lon;lat;xtot;ytot;ztot;ttot;laftot;
-    //printf("line: %s \n", line);
-    char *ptr = strtok(line, delim);
-    int j = 0; // index inside line
-    bool mybox = false;
-    while(ptr != NULL) { // break up line
-      // if itot == 266 then in oslo box
-      if(j==0 && (strcmp(ptr, "289")==0 || strcmp(ptr, " 289")==0 )) {
-      //if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
-        mybox = true;
-      }
-      if(mybox) {
-        if(j == 4) { //easting
-          x[n] = atof(ptr);
-        }
-        if(j == 5) { //northing
-          y[n] = atof(ptr);
-        }
-        if(j == 6) { // elevation
-          // keep the elevation values for oslo stations
-          z[n] = atof(ptr);
-        }
-        if(j == 7) { // temperature
-          t[n] = atof(ptr);
-          n++; // increment size of these arrays
-        }
-        /*
-        fputs(ptr,out);
-        if(j!=9) {
-          fputs(";",out);
-        } */
-        //printf("%s\n", ptr);
-      }
-      ptr = strtok(NULL, delim);
-      j++;
+  bool testing = true;
+  if(testing == false) {
+    // Testing functions from main, but eventually have to call it from R code
+    FILE *fp;
+    char *filename = "/home/louiseo/Documents/SCT/myrepo/input_for_example.txt";
+    fp = fopen(filename, "r");
+    if(fp == NULL) {
+        printf("could not open file: %s \n", filename);
+        return 1;
     }
+    printf("opened file: %s \n", filename);
+
+    // write just the oslo box stuff to a file for testing
+    //FILE *out;
+    //out = fopen("33.txt", "w");
+
+    // arrays z (elevation), x,y easting and northing coords
+    double *z; // array do not know size of yet
+    double *x;
+    double *y;
+    double *t;
+    z = malloc(sizeof(double) * 50000);
+    x = malloc(sizeof(double) * 50000);
+    y = malloc(sizeof(double) * 50000);
+    t = malloc(sizeof(double) * 50000);
+    int n = 0;
+    if (!z || !x || !y || !t) { /* If data == 0 after the call to malloc, allocation failed for some reason */
+      printf("Error allocating memory \n");
+      return 1;
+    }
+    //memset(z, 0, sizeof(double)*50000);
+
+    int lenLine=150;
+    char line[lenLine];
+    char delim[] = ";";
+
+    while(fgets(line,lenLine,fp)) { // loop through lines in file
+      //itot;pridtot;lon;lat;xtot;ytot;ztot;ttot;laftot;
+      //printf("line: %s \n", line);
+      char *ptr = strtok(line, delim);
+      int j = 0; // index inside line
+      bool mybox = false;
+      while(ptr != NULL) { // break up line
+        // if itot == 266 then in oslo box
+        //if(j==0 && (strcmp(ptr, "")==0 || strcmp(ptr, " 33")==0 )) {
+        if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
+          mybox = true;
+        }
+        if(mybox) {
+          if(j == 1) { //easting
+            x[n] = atof(ptr);
+          }
+          if(j == 2) { //northing
+            y[n] = atof(ptr);
+          }
+          if(j == 3) { // elevation
+            // keep the elevation values for oslo stations
+            z[n] = atof(ptr);
+          }
+          if(j == 4) { // temperature
+            t[n] = atof(ptr);
+            n++; // increment size of these arrays
+          }
+          /*
+          fputs(ptr,out);
+          if(j!=9) {
+            fputs(";",out);
+          } */
+          //printf("%s\n", ptr);
+        }
+        ptr = strtok(NULL, delim);
+        j++;
+      }
+    }
+    printf("Number of stations in box: %i \n", n);
+    printf("Mean x: %f y: %f z: %f \n", mean(x,n), mean(y,n), mean(z,n));
+    printf("Mean t: %f\n", mean(t,n));
+
+    fclose(fp);
+    //fclose(out);
+
+    // initial variables for VP (first guess, adjusted during optimization)
+    double gamma = -0.0065;
+    double a = 5;
+
+    double meanT = mean(t,n);
+
+    // make copies of z for the quantile computation
+    double * z_temp1;
+    double * z_temp2;
+    z_temp1 = malloc(sizeof(double) * n);
+    z_temp2 = malloc(sizeof(double) * n);
+    // allocate for output
+    double *t_out = malloc(sizeof(double) * n);
+    for(int i=0; i<n; i++) {
+      z_temp1[i] = z[i];
+      z_temp2[i] = z[i];
+      t_out[i] = -999;
+    }
+
+    double exact_p10 = compute_quantile(0.10, z_temp1, n);
+    double exact_p90 = compute_quantile(0.90, z_temp2, n);
+    free(z_temp1);
+    free(z_temp2);
+
+    // data (params) that needs to be passed into vp
+    double nd = (double) n; // cast + resize to double
+    // data (double *n, double *z, double *t, double *t_out)
+    double * data[4] = {&nd, z, t, t_out};
+
+    // vector (double t0, double gamma, double a, double h0, double h1i)
+    // Starting point for optimization
+    gsl_vector *input = gsl_vector_alloc(5);
+    gsl_vector_set(input,0,meanT);
+    gsl_vector_set(input,1,gamma);
+    gsl_vector_set(input,2,a);
+    gsl_vector_set(input,3,exact_p10);
+    gsl_vector_set(input,4,exact_p90);
+    printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+            meanT, gamma, a, exact_p10, exact_p90);
+
+    //printf("first values in z (before calling optimizer) %f %f %f\n", z[0], z[1], z[2]);
+
+    int status = vertical_profile_optimizer(input, data);
+    printf("status optimizer: %d\n", status);
+    printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+              gsl_vector_get(input, 0),
+              gsl_vector_get(input, 1),
+              gsl_vector_get(input, 2),
+              gsl_vector_get(input, 3),
+              gsl_vector_get(input, 4));
+
+    vertical_profile(n, z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
+      gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
+    // now have temperature profile (t_out)
+    gsl_vector_free(input);
+
+    for(int i=0; i<n; i++) {
+      assert(t_out[i] !=-999);
+    }
+    printf("first values in z (after vp) %f %f %f %f %f %f\n", z[0], z[1], z[2], z[3], z[4], z[5]);
+    printf("first values in t_out (after vp) %f %f %f %f %f %f\n", t_out[0], t_out[1], t_out[2], t_out[3], t_out[4], t_out[5]);
+
+    // variables for SCT
+    double t2 = 16; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
+
+    // 266;-247429.070909252;-365421.526660934;3466;
+    // 289;-16140.3479247747;-468700.431167886;90;
+    //int box = 266;
+    int box = 289;
+    double boxCentre[2];
+    boxCentre[0] = -16140.3479247747;
+    boxCentre[1] = -468700.431167886;
+    //boxCentre[0] = -247429.070909252;
+    //boxCentre[1] = -365421.526660934;
+    int numStationsInBox = n;
+    printf("num stations: %d\n", n);
+
+    // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
+                                  //double *x, double *y, double *z, double *vp)
+    clock_t start = clock(), diff;
+    //spatial_consistency_test(&t2, &box, boxCentre, &numStationsInBox, x, y, z, t, t_out);
+    diff = clock() - start;
+    int msec = diff * 1000 / CLOCKS_PER_SEC;
+    printf("SCT end\n");
+    printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+    free(z);
+    free(x);
+    free(y);
+    free(t);
+    free(t_out);
+    return 0;
   }
-  printf("Number of stations in box: %i \n", n);
-  printf("Mean x: %f y: %f z: %f \n", mean(x,n), mean(y,n), mean(z,n));
-  printf("Mean t: %f\n", mean(t,n));
+  else {
+    FILE *fp;
+    char *filename = "/home/louiseo/Documents/SCT/myrepo/testdata.txt";
+    fp = fopen(filename, "r");
+    if(fp == NULL) {
+        printf("could not open file: %s \n", filename);
+        return 1;
+    }
+    printf("opened file: %s \n", filename);
 
-  fclose(fp);
-  //fclose(out);
+    int n = 10;
+    double *z;
+    double *x;
+    double *y;
+    double *t;
+    double *vp;
+    z = malloc(sizeof(double) * n);
+    x = malloc(sizeof(double) * n);
+    y = malloc(sizeof(double) * n);
+    t = malloc(sizeof(double) * n);
+    vp = malloc(sizeof(double) * n);
+    if (!z || !x || !y || !t || !vp) { /* If data == 0 after the call to malloc, allocation failed for some reason */
+      printf("Error allocating memory \n");
+      return 1;
+    }
+    printf("allocated memory \n");
 
-  // initial variables for VP (first guess, adjusted during optimization)
-  double gamma = -0.0065;
-  double a = 5;
+    int lenLine=150;
+    char line[lenLine];
+    char delim[] = ";";
 
-  double meanT = mean(t,n);
+    bool first = true;
+    int size = 0;
+    while(fgets(line,lenLine,fp)) { // loop through lines in file
+      //x;y;z;t;vp
+      //printf("line: %s \n", line);
+      char *ptr = strtok(line, delim);
+      int j = 0; // index inside line
+      while(ptr != NULL && !first) { // break up line
+        //printf("j: %d \n", j);
+        if(j == 0) { //easting
+          x[size] = atof(ptr);
+        }
+        if(j == 1) { //northing
+          y[size] = atof(ptr);
+        }
+        if(j == 2) { // elevation
+          z[size] = atof(ptr);
+        }
+        if(j == 3) { // temperature
+          t[size] = atof(ptr);
+        }
+        if(j == 4) { // vertical profile
+          vp[size] = atof(ptr);
+          size++;
+        }
+        ptr = strtok(NULL, delim);
+        j++;
+      }
+      first = false;
+    }
+    printf("Number of stations in box: %i \n", size);
+    printf("Mean x: %f y: %f z: %f \n", mean(x,n), mean(y,n), mean(z,n));
+    printf("Mean t: %f\n", mean(t,n));
 
-  // make copies of z for the quantile computation
-  double * z_temp1;
-  double * z_temp2;
-  z_temp1 = malloc(sizeof(double) * n);
-  z_temp2 = malloc(sizeof(double) * n);
-  // allocate for output
-  double *t_out = malloc(sizeof(double) * n);
-  for(int i=0; i<n; i++) {
-    z_temp1[i] = z[i];
-    z_temp2[i] = z[i];
-    t_out[i] = -999;
+    fclose(fp);
+
+    // variables for SCT
+    double t2 = 3; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
+    int box = 1;
+    double boxCentre[2];
+    boxCentre[0] = 1;
+    boxCentre[1] = 1;
+
+    // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
+                                  //double *x, double *y, double *z, double *vp)
+    clock_t start = clock(), diff;
+    spatial_consistency_test(&t2, &box, boxCentre, &n, x, y, z, t, vp);
+    diff = clock() - start;
+    int msec = diff * 1000 / CLOCKS_PER_SEC;
+    printf("SCT end\n");
+    printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+    free(z);
+    free(x);
+    free(y);
+    free(t);
+    free(vp);
+    return 0;
   }
 
-  double exact_p10 = compute_quantile(0.10, z_temp1, n);
-  double exact_p90 = compute_quantile(0.90, z_temp2, n);
-  free(z_temp1);
-  free(z_temp2);
-
-  /* data (params) that needs to be passed into vp */
-  double nd = (double) n; // cast + resize to double
-  // data (double *n, double *z, double *t, double *t_out)
-  double * data[4] = {&nd, z, t, t_out};
-
-  // vector (double t0, double gamma, double a, double h0, double h1i)
-  /* Starting point for optimization */
-  gsl_vector *input = gsl_vector_alloc(5);
-  gsl_vector_set(input,0,meanT);
-  gsl_vector_set(input,1,gamma);
-  gsl_vector_set(input,2,a);
-  gsl_vector_set(input,3,exact_p10);
-  gsl_vector_set(input,4,exact_p90);
-  printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-          meanT, gamma, a, exact_p10, exact_p90);
-
-  //printf("first values in z (before calling optimizer) %f %f %f\n", z[0], z[1], z[2]);
-
-  int status = vertical_profile_optimizer(input, data);
-  printf("status optimizer: %d\n", status);
-  printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-            gsl_vector_get(input, 0),
-            gsl_vector_get(input, 1),
-            gsl_vector_get(input, 2),
-            gsl_vector_get(input, 3),
-            gsl_vector_get(input, 4));
-
-  vertical_profile(n, z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
-    gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
-  // now have temperature profile (t_out)
-  gsl_vector_free(input);
-
-  for(int i=0; i<n; i++) {
-    assert(t_out[i] !=-999);
-  }
-  printf("first values in z (after vp) %f %f %f %f %f %f\n", z[0], z[1], z[2], z[3], z[4], z[5]);
-  printf("first values in t_out (after vp) %f %f %f %f %f %f\n", t_out[0], t_out[1], t_out[2], t_out[3], t_out[4], t_out[5]);
-
-  // variables for SCT
-  double t2 = 16; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
-
-  // 266;-247429.070909252;-365421.526660934;3466;
-  // 289;-16140.3479247747;-468700.431167886;90;
-  //int box = 266;
-  int box = 289;
-  double boxCentre[2];
-  boxCentre[0] = -16140.3479247747;
-  boxCentre[1] = -468700.431167886;
-  //boxCentre[0] = -247429.070909252;
-  //boxCentre[1] = -365421.526660934;
-  int numStationsInBox = n;
-  printf("num stations: %d\n", n);
-
-  // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
-                                //double *x, double *y, double *z, double *vp)
-  clock_t start = clock(), diff;
-  spatial_consistency_test(&t2, &box, boxCentre, &numStationsInBox, x, y, z, t, t_out);
-  diff = clock() - start;
-  int msec = diff * 1000 / CLOCKS_PER_SEC;
-  printf("SCT end\n");
-  printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
-
-  free(z);
-  free(x);
-  free(y);
-  free(t);
-  free(t_out);
-  return 0;
 }
 
 //----------------------------------------------------------------------------//
@@ -451,6 +545,13 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
   double** disth = malloc(sizeof(double*)*n);
   double** distz = malloc(sizeof(double*)*n);
   double *Dh = malloc(sizeof(double)*n);
+
+  print_vector(x,n);
+  print_vector(y,n);
+  print_vector(z,n);
+  print_vector(t,n);
+  print_vector(vp,n);
+
   // no need to select j since already only have those for a particular box
   // outer product of the matrices
   for(int i=0; i<n; i++) {
@@ -466,6 +567,8 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     Dh[i] = compute_quantile(0.10, Dh_vector, n);
     free(Dh_vector);
   }
+  print_matrix(disth,n,n);
+  print_matrix(distz,n,n);
   /*
   # set to optimal Dh for the SCT
   # either Dhmin or the average 10-percentile of the set of distances between a
@@ -474,15 +577,16 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
   mean(apply(cbind(1:nrow(disth),disth),MARGIN=1,FUN=function(x){
      as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],probs=0.1))})))
   */
-  int Dz = 200; // good value (use this default)
   double Dh_mean = mean(Dh,n);
-  // TODO: what number should this be?
-  if(Dh_mean < 10000) {
-    Dh_mean = 10000;
-  }
   printf("Dh: %f\n", Dh_mean);
+  // TODO: what number should this be? Dhmin
+  if(Dh_mean < 10000) {
+    Dh_mean = 11600;
+  }
+  printf("Dh_mean: %f\n", Dh_mean);
 
   // background error correlation matrix
+  int Dz = 200; // good value (use this default)
   gsl_matrix *S, *Sinv;
   S = gsl_matrix_alloc(n,n);
   Sinv = gsl_matrix_alloc(n,n);
@@ -499,7 +603,7 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     }
   }
   printf("created the S matrix - size1 %lu size2 %lu \n", S->size1, S->size2);
-  //print_matrix(n,n,S);
+  print_gsl_matrix(S,n,n);
 
   gsl_vector *stationFlags;
   stationFlags = gsl_vector_alloc(n);
@@ -537,9 +641,9 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
         gsl_matrix_set(S,i,i,value);
       }
       printf("S first\n");
-      print_sub_matrix(S, 72, 80);
+      print_gsl_matrix(S, current_n, current_n); //(int rows, int columns, gsl_matrix *matrix)
       printf("Sinv first\n");
-      print_sub_matrix(Sinv, 72, 80);
+      print_gsl_matrix(Sinv, current_n, current_n);
 
       // no longer the first iteration
       first = false;
@@ -559,8 +663,11 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
         gsl_vector *d_temp = gsl_vector_alloc(newSize);
         gsl_matrix *s_temp = gsl_matrix_alloc(newSize, newSize);
 
-        printf("S Before: %f %f %f %f\n", gsl_matrix_get(S, 72, 73), gsl_matrix_get(S, 73, 73), gsl_matrix_get(S, 74, 73), gsl_matrix_get(S, 75, 73));
-        printf("d Before: %f %f %f %f\n", gsl_vector_get(d, 72), gsl_vector_get(d, 73), gsl_vector_get(d, 74), gsl_vector_get(d, 75));
+        printf("d before: ");
+        for(int vec=0; vec<current_n; vec++) {
+          printf(" %f", gsl_vector_get(d, vec));
+        }
+        printf("\n");
 
         int counter_i = 0;
         for(int i=0; i<current_n; i++) {
@@ -597,8 +704,11 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
         d = d_temp;
         gsl_matrix_free(S);
         S = s_temp;
-        printf("S After: %f %f %f %f\n", gsl_matrix_get(S, 72, 73), gsl_matrix_get(S, 73, 73), gsl_matrix_get(S, 74, 73), gsl_matrix_get(S, 75, 73));
-        printf("d after: %f %f %f %f\n", gsl_vector_get(d, 72), gsl_vector_get(d, 73), gsl_vector_get(d, 74), gsl_vector_get(d, 75));
+        printf("d after: ");
+        for(int vec=0; vec<current_n; vec++) {
+          printf(" %f", gsl_vector_get(d, vec));
+        }
+        printf("\n");
         assert(stationFlags->size == current_n);
         assert(d->size == current_n);
         assert(S->size1 == current_n);
@@ -632,9 +742,10 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
 
       }
       printf("S\n");
-      print_sub_matrix(S, 72, 80);
+      print_gsl_matrix(S, current_n, current_n); //(int rows, int columns, gsl_matrix *matrix)
       printf("Sinv\n");
-      print_sub_matrix(Sinv, 72, 80);
+      print_gsl_matrix(Sinv, current_n, current_n);
+
       // implent to remove only one station at once (faster?)
       /*
       else { //throwout == 1
@@ -657,6 +768,8 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     assert(d->size == current_n);
     assert(S->size1 == current_n);
     assert(S->size2 == current_n);
+    assert(Sinv->size1 == current_n);
+    assert(Sinv->size2 == current_n);
     assert(current_n > 0); // Should hopefully not throw out all the stations...
 
     gsl_vector *Zinv, *Sinv_d, *ares_temp, *ares;
@@ -664,14 +777,34 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     Sinv_d = gsl_vector_alloc(current_n);
     ares_temp = gsl_vector_alloc(current_n);
     ares = gsl_vector_alloc(current_n);
+
     // (SRinv.d<-crossprod(SRinv,d[sel]))
-    gsl_blas_dgemv(CblasNoTrans, 1, Sinv, d, 1, Sinv_d); // crossprod Sinv & d to create Sinv_d
-    gsl_blas_dgemv(CblasNoTrans, 1, S, Sinv_d, 1, ares_temp); // crossprod S and Sinv_d to create ares_temp
+    //gsl_blas_dgemv(CblasNoTrans, 1, Sinv, d, 1, Sinv_d); // crossprod Sinv & d to create Sinv_d
+    //gsl_blas_dgemv(CblasNoTrans, 1, S, Sinv_d, 1, ares_temp); // crossprod S and Sinv_d to create ares_temp
+    for(int i=0; i<current_n; i++) {
+      double acc = 0;
+      for(int j=0; j<current_n; j++) {
+        acc += gsl_matrix_get(Sinv,i,j)*gsl_vector_get(d,j);
+      }
+      gsl_vector_set(Sinv_d, i, acc);
+    }
+    for(int i=0; i<current_n; i++) {
+      double acc = 0;
+      for(int j=0; j<current_n; j++) {
+        acc += gsl_matrix_get(S,i,j)*gsl_vector_get(Sinv_d,j);
+      }
+      gsl_vector_set(ares_temp, i, acc);
+    }
+
     for(int i=0; i<current_n; i++) {
       gsl_vector_set(Zinv,i,(1/gsl_matrix_get(Sinv,i,i))); //Zinv<-1/diag(SRinv)
       gsl_vector_set(ares,i,(gsl_vector_get(ares_temp,i)-gsl_vector_get(d,i))); // ares<-crossprod(S,SRinv.d)-d[sel]
     }
     gsl_vector_free(ares_temp);
+    printf("Zinv: ");
+    print_gsl_vector(Zinv,current_n);
+    printf("Sinv_d: ");
+    print_gsl_vector(Sinv_d,current_n);
 
     // cvres<--Zinv*SRinv.d
     gsl_vector *cvres;
@@ -694,7 +827,10 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     for(int i=0; i<current_n; i++) {
       sig2o = sig2o + gsl_vector_get(sig2o_temp,i);
     }
-    printf("sig: %f %f\n", gsl_vector_get(d, 0), gsl_vector_get(negAres_temp, 1));
+    printf("d: ");
+    print_gsl_vector(d,current_n);
+    printf("neg ares: ");
+    print_gsl_vector(negAres_temp,current_n);
     sig2o = sig2o/current_n;
     printf("sig2o: %f\n", sig2o);
     gsl_vector_free(sig2o_temp);
@@ -789,7 +925,34 @@ double mean(const double *array, int sizeArray)
   return mean;
 }
 
-void print_matrix(int rows, int columns, gsl_matrix *matrix) {
+void print_vector(double *vector, int size) {
+  for (int s=0; s<size; s++)
+  {
+    printf("%.2f ", vector[s]);
+  }
+  printf("\n");
+}
+
+void print_gsl_vector(gsl_vector *vector, int size) {
+  for (int s=0; s<size; s++)
+  {
+    printf("%.2f ", gsl_vector_get(vector,s));
+  }
+  printf("\n");
+}
+
+void print_matrix(double **matrix, int rows, int columns) {
+  for (int r=0; r<rows; r++)
+  {
+      for(int c=0; c<columns; c++)
+          {
+           printf("%.2f ", matrix[r][c]);
+          }
+      printf("\n");
+   }
+}
+
+void print_gsl_matrix(gsl_matrix *matrix, int rows, int columns) {
   for (int r=0; r<rows; r++)
   {
       for(int c=0; c<columns; c++)
@@ -800,7 +963,7 @@ void print_matrix(int rows, int columns, gsl_matrix *matrix) {
    }
 }
 
-void print_sub_matrix(gsl_matrix *matrix, int start, int stop) {
+void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop) {
   for (int r=start; r<=stop; r++)
   {
       for(int c=start; c<=stop; c++)
