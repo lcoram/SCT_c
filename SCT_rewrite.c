@@ -103,8 +103,7 @@ int main()
       bool mybox = false;
       while(ptr != NULL) { // break up line
         // if itot == 266 then in oslo box
-        //if(j==0 && (strcmp(ptr, "")==0 || strcmp(ptr, " 33")==0 )) {
-        if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
+        if(j==0 && (strcmp(ptr, "289")==0 || strcmp(ptr, " 289")==0 )) {
           mybox = true;
         }
         if(mybox) {
@@ -180,8 +179,6 @@ int main()
     printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
             meanT, gamma, a, exact_p10, exact_p90);
 
-    //printf("first values in z (before calling optimizer) %f %f %f\n", z[0], z[1], z[2]);
-
     int status = vertical_profile_optimizer(input, data);
     printf("status optimizer: %d\n", status);
     printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
@@ -220,7 +217,7 @@ int main()
     // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
                                   //double *x, double *y, double *z, double *vp)
     clock_t start = clock(), diff;
-    //spatial_consistency_test(&t2, &box, boxCentre, &numStationsInBox, x, y, z, t, t_out);
+    spatial_consistency_test(&t2, &box, boxCentre, &numStationsInBox, x, y, z, t, t_out);
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("SCT end\n");
@@ -557,14 +554,21 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
   for(int i=0; i<n; i++) {
     disth[i] = malloc(sizeof(double)*n);
     distz[i] = malloc(sizeof(double)*n);
-    double *Dh_vector = malloc(sizeof(double)*n);
+    double *Dh_vector = malloc(sizeof(double)*(n-1)); // need to remove one since not considering the diagonal
     for(int j=0; j<n; j++) {
       //printf("i %i j %i \n", i, j);
       disth[i][j] = pow((pow((x[i]-x[j]),2)+pow((y[i]-y[j]),2)),0.5);
       distz[i][j] = abs(z[i]-z[j]);
-      Dh_vector[j] = disth[i][j];
+      if(i != j) { // do not want to consider the diagonal
+        if(i < j) {
+          Dh_vector[j-1] = disth[i][j];
+        }
+        else if(i > j) {
+          Dh_vector[j] = disth[i][j];
+        }
+      }
     }
-    Dh[i] = compute_quantile(0.10, Dh_vector, n);
+    Dh[i] = compute_quantile(0.10, Dh_vector, n-1);
     free(Dh_vector);
   }
   print_matrix(disth,n,n);
@@ -581,7 +585,7 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
   printf("Dh: %f\n", Dh_mean);
   // TODO: what number should this be? Dhmin
   if(Dh_mean < 10000) {
-    Dh_mean = 11600;
+    Dh_mean = 10000;
   }
   printf("Dh_mean: %f\n", Dh_mean);
 
@@ -741,10 +745,10 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
         }
 
       }
-      printf("S\n");
-      print_gsl_matrix(S, current_n, current_n); //(int rows, int columns, gsl_matrix *matrix)
-      printf("Sinv\n");
-      print_gsl_matrix(Sinv, current_n, current_n);
+      //printf("S\n");
+      //print_gsl_matrix(S, current_n, current_n); //(int rows, int columns, gsl_matrix *matrix)
+      //printf("Sinv\n");
+      //print_gsl_matrix(Sinv, current_n, current_n);
 
       // implent to remove only one station at once (faster?)
       /*
@@ -779,6 +783,7 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     ares = gsl_vector_alloc(current_n);
 
     // (SRinv.d<-crossprod(SRinv,d[sel]))
+    // this function does not appear to work properly!!!
     //gsl_blas_dgemv(CblasNoTrans, 1, Sinv, d, 1, Sinv_d); // crossprod Sinv & d to create Sinv_d
     //gsl_blas_dgemv(CblasNoTrans, 1, S, Sinv_d, 1, ares_temp); // crossprod S and Sinv_d to create ares_temp
     for(int i=0; i<current_n; i++) {
@@ -801,10 +806,10 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
       gsl_vector_set(ares,i,(gsl_vector_get(ares_temp,i)-gsl_vector_get(d,i))); // ares<-crossprod(S,SRinv.d)-d[sel]
     }
     gsl_vector_free(ares_temp);
-    printf("Zinv: ");
-    print_gsl_vector(Zinv,current_n);
-    printf("Sinv_d: ");
-    print_gsl_vector(Sinv_d,current_n);
+    //printf("Zinv: ");
+    //print_gsl_vector(Zinv,current_n);
+    //printf("Sinv_d: ");
+    //print_gsl_vector(Sinv_d,current_n);
 
     // cvres<--Zinv*SRinv.d
     gsl_vector *cvres;
@@ -827,10 +832,10 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
     for(int i=0; i<current_n; i++) {
       sig2o = sig2o + gsl_vector_get(sig2o_temp,i);
     }
-    printf("d: ");
-    print_gsl_vector(d,current_n);
-    printf("neg ares: ");
-    print_gsl_vector(negAres_temp,current_n);
+    //printf("d: ");
+    //print_gsl_vector(d,current_n);
+    //printf("neg ares: ");
+    //print_gsl_vector(negAres_temp,current_n);
     sig2o = sig2o/current_n;
     printf("sig2o: %f\n", sig2o);
     gsl_vector_free(sig2o_temp);
