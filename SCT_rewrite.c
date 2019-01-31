@@ -45,10 +45,21 @@ double vertical_profile_optimizer_function(const gsl_vector *v, void *data); // 
 void vertical_profile(int nz, double *z,
     double t0, double gamma, double a, double h0, double h1i, double *t_out);
 
+struct box {
+  int  n;
+  double *x;
+  double *y;
+  double *z;
+  double *t;
+};
+
+struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInBox, struct box inputBox);
 
 // helpers
 double compute_quantile(double quantile, double *array, int sizeArray);
 double mean(const double *array, int sizeArray);
+double max(const double *array, int sizeArray);
+double min(const double *array, int sizeArray);
 void print_vector(double *vector, int size);
 void print_gsl_vector(gsl_vector *vector, int size);
 void print_matrix(double **matrix, int rows, int columns);
@@ -103,7 +114,7 @@ int main()
       bool mybox = false;
       while(ptr != NULL) { // break up line
         // if itot == 266 then in oslo box
-        if(j==0 && (strcmp(ptr, "262")==0 || strcmp(ptr, " 262")==0 )) {
+        if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
           mybox = true;
         }
         if(mybox) {
@@ -138,6 +149,26 @@ int main()
 
     fclose(fp);
     //fclose(out);
+
+    // do some stuff with the box
+    int maxNumStationsInBox = 1000;
+    int minNumStationsInBox = 100;
+    // if more than max try splitting in 4
+    if(n > maxNumStationsInBox) {
+      struct box inputBox;
+      inputBox.n = n;
+      inputBox.x = x;
+      inputBox.y = y;
+      inputBox.z = z;
+      inputBox.t = t;
+      struct box * boxes = control_box_division(maxNumStationsInBox, minNumStationsInBox, inputBox);
+      struct box box1 = boxes[0];
+      struct box box2 = boxes[1];
+      struct box box3 = boxes[2];
+      struct box box4 = boxes[3];
+      printf("00: %i 01: %i 10: %i 11: %i \n", box1.n, box2.n, box3.n, box4.n);
+    }
+
 
     // initial variables for VP (first guess, adjusted during optimization)
     double gamma = -0.0065;
@@ -204,12 +235,12 @@ int main()
 
     // 266;-247429.070909252;-365421.526660934;3466;
     // 262;-555814.034888555;-365421.526660934;590;
-    int box = 262;
+    int box = 266;
     double boxCentre[2];
-    boxCentre[0] = -555814.034888555;
+    boxCentre[0] = -247429.070909252;
     boxCentre[1] = -365421.526660934;
     int numStationsInBox = n;
-    printf("num stations: %d\n", n);
+    printf("num stations: %d (should be 3466)\n", n);
 
     // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
                                   //double *x, double *y, double *z, double *vp)
@@ -892,6 +923,209 @@ void spatial_consistency_test(double *t2, int *box, double *boxCentre, int *numS
   // end of while SCT loop
 }
 
+struct box merge_boxes(struct box box1, struct box box2) {
+
+  struct box mergedBox;
+  mergedBox.n = (box1.n+box2.n); // set initial n
+  mergedBox.x = malloc(sizeof(double) * mergedBox.n);
+  mergedBox.y = malloc(sizeof(double) * mergedBox.n);
+  mergedBox.z = malloc(sizeof(double) * mergedBox.n);
+  mergedBox.t = malloc(sizeof(double) * mergedBox.n);
+
+  for(int i=0; i<box1.n; i++) {
+    mergedBox.x[i] = box1.x[i];
+    mergedBox.y[i] = box1.y[i];
+    mergedBox.z[i] = box1.z[i];
+    mergedBox.t[i] = box1.t[i];
+  }
+  for(int j=box1.n; j<mergedBox.n; j++) {
+    mergedBox.x[j] = box2.x[j-box1.n];
+    mergedBox.y[j] = box2.y[j-box1.n];
+    mergedBox.z[j] = box2.z[j-box1.n];
+    mergedBox.t[j] = box2.t[j-box1.n];
+  }
+
+  //printf("Merged box size: %i \n", mergedBox.n);
+  return mergedBox;
+}
+
+// recursive function that will keep splitting boxes until they are the right size
+// returns a box at the "leaf"
+void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inputBox, int * finalNumBoxes, struct box ** finalBoxes) {
+
+  struct box * boxes;
+  // allocate memory, currently for 4 boxes
+  boxes = malloc(sizeof(struct box) * 4);
+  for(int i=0; i<4; i++) {
+    //boxes[i].n = malloc(sizeof(int));
+    boxes[i].n = 0; // set initial n
+    boxes[i].x = malloc(sizeof(double) * inputBox.n);
+    boxes[i].y = malloc(sizeof(double) * inputBox.n);
+    boxes[i].z = malloc(sizeof(double) * inputBox.n);
+    boxes[i].t = malloc(sizeof(double) * inputBox.n);
+  }
+  double maxX = max(inputBox.x,inputBox.n);
+  double maxY = max(inputBox.y,inputBox.n);
+  double minX = min(inputBox.x,inputBox.n);
+  double minY = min(inputBox.y,inputBox.n);
+  // halfway between min and max
+  double halfwayX = minX + abs(abs(maxX)-abs(minX))/2;
+  double halfwayY = minY + abs(abs(maxY)-abs(minY))/2;
+  //printf("halfway x: %f y: %f \n", halfwayX, halfwayY);
+
+  // new boxes
+  for(int i=0; i<inputBox.n; i++) {
+    // (0,0)
+    if(inputBox.x[i] < halfwayX && inputBox.y[i] < halfwayY) {
+      boxes[0].x[boxes[0].n] = inputBox.x[i];
+      boxes[0].y[boxes[0].n] = inputBox.y[i];
+      boxes[0].z[boxes[0].n] = inputBox.z[i];
+      boxes[0].t[boxes[0].n] = inputBox.t[i];
+      boxes[0].n++;
+    }
+    // (0,1)
+    if(inputBox.x[i] >= halfwayX && inputBox.y[i] < halfwayY) {
+      boxes[1].x[boxes[1].n] = inputBox.x[i];
+      boxes[1].y[boxes[1].n] = inputBox.y[i];
+      boxes[1].z[boxes[1].n] = inputBox.z[i];
+      boxes[1].t[boxes[1].n] = inputBox.t[i];
+      boxes[1].n++;
+    }
+    // (1,0)
+    if(inputBox.x[i] < halfwayX && inputBox.y[i] >= halfwayY) {
+      boxes[2].x[boxes[2].n] = inputBox.x[i];
+      boxes[2].y[boxes[2].n] = inputBox.y[i];
+      boxes[2].z[boxes[2].n] = inputBox.z[i];
+      boxes[2].t[boxes[2].n] = inputBox.t[i];
+      boxes[2].n++;
+    }
+    // (1,1)
+    if(inputBox.x[i] >= halfwayX && inputBox.y[i] >= halfwayY) {
+      boxes[3].x[boxes[3].n] = inputBox.x[i];
+      boxes[3].y[boxes[3].n] = inputBox.y[i];
+      boxes[3].z[boxes[3].n] = inputBox.z[i];
+      boxes[3].t[boxes[3].n] = inputBox.t[i];
+      boxes[3].n++;
+    }
+  }
+  printf("4 way split - 0: %i 1: %i 2: %i 3: %i \n", boxes[0].n, boxes[1].n, boxes[2].n, boxes[3].n);
+  int numBoxes = 4;
+
+  // what kind of aspect ratio do the boxes have
+  // is the same for all boxes currently...
+  //for(int i=0; i<numBoxes; i++) {
+    double maX = max(boxes[0].x,boxes[0].n);
+    double maY = max(boxes[0].y,boxes[0].n);
+    double miX = min(boxes[0].x,boxes[0].n);
+    double miY = min(boxes[0].y,boxes[0].n);
+    double diffX = abs(maX - miX);
+    double diffY = abs(maY - miY);
+    //printf("diff: x %f y %f \n", diffX, diffY);
+  //}
+
+  // first check which way it makes more sense to merge
+  // ok to merge the way that keeps the boxes squarer?
+  if(diffY < diffX) {
+    // wide boxes, so preferable to merge 0,2 + 1,3 (vertically)
+    int n1 = boxes[0].n + boxes[2].n;
+    int n2 = boxes[1].n + boxes[3].n;
+    if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
+      // merge vertically
+      printf("best to merge vertically \n");
+      boxes[0] = merge_boxes(boxes[0],boxes[2]);
+      boxes[1] = merge_boxes(boxes[1],boxes[3]);
+    }
+    else {
+      // merge horizontally
+      printf("had to merge horizontally \n");
+      boxes[0] = merge_boxes(boxes[0],boxes[1]);
+      boxes[1] = merge_boxes(boxes[2],boxes[3]);
+    }
+  }
+  else { // diffY > diffX
+    // tall boxes, so preferable to merge 0,1 + 2,3 (horizontally)
+    int n1 = boxes[0].n + boxes[1].n;
+    int n2 = boxes[2].n + boxes[3].n;
+    if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
+      // merge horizontally
+      printf("best to merge horizontally \n");
+      boxes[0] = merge_boxes(boxes[0],boxes[1]);
+      boxes[1] = merge_boxes(boxes[2],boxes[3]);
+    }
+    else {
+      // merge vertically
+      printf("had to merge vertically \n");
+      boxes[0] = merge_boxes(boxes[0],boxes[2]);
+      boxes[1] = merge_boxes(boxes[1],boxes[3]);
+    }
+  }
+  printf("2 way split - 0: %i 1: %i \n", boxes[0].n, boxes[1].n);
+  numBoxes = 2;
+
+  // loop over the boxes
+  for(int i=0; i<numBoxes; i++) {
+    int n_temp = boxes[i].n;
+    //printf("still too big or return? %i i: %i \n", n_temp, i);
+    if(n_temp > maxNumStationsInBox) {
+      printf("box still too big %i (being further recursively split)\n", n_temp);
+      // split the box further
+      split_box(maxNumStationsInBox, minNumStationsInBox, boxes[i], finalNumBoxes, finalBoxes);
+    }
+    else {
+      printf("box size: %i, being returned \n", n_temp);
+      int current_n = *finalNumBoxes;
+      //printf("current total number of boxes: %i \n", current_n);
+      // add to list of boxes (finalBoxes)
+      ((*finalBoxes)[current_n]).n = boxes[i].n;
+      ((*finalBoxes)[current_n]).x = boxes[i].x;
+      ((*finalBoxes)[current_n]).y = boxes[i].y;
+      ((*finalBoxes)[current_n]).z = boxes[i].z;
+      ((*finalBoxes)[current_n]).t = boxes[i].t;
+      // increment the number of boxes
+      (*finalNumBoxes)++;
+    }
+  }
+}
+
+struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInBox, struct box inputBox) {
+
+  struct box * totalBoxes;
+  int maxNumBoxes = floor(inputBox.n/minNumStationsInBox);
+  printf("allocating memory for potential max number of boxes: %i \n",  maxNumBoxes);
+  totalBoxes = malloc(sizeof(struct box) * maxNumBoxes);
+  int totalNumBoxes = 0;
+
+  // pass the outputs in by reference (so the recursive function can add to them)
+  split_box(maxNumStationsInBox, minNumStationsInBox, inputBox, &totalNumBoxes, &totalBoxes);
+
+  FILE *out;
+  out = fopen("/home/louiseo/Documents/SCT/myrepo/outputBoxes.txt", "w");
+  fputs("id;x;y;",out);
+
+  printf("total number of boxes: %i \n", totalNumBoxes);
+  for(int i=0; i<totalNumBoxes; i++) {
+    printf("box: %i size: %i \n", i, totalBoxes[i].n);
+    for(int j=0; j<totalBoxes[i].n; j++) {
+      fputs("\n",out);
+      char str_temp[10];
+      char str[30];
+      sprintf(str_temp,"%d",i);
+      strcpy(str,str_temp);
+      strcat(str,";");
+      sprintf(str_temp,"%f",(totalBoxes[i].x)[j]);
+      strcat(str,str_temp);
+      strcat(str,";");
+      sprintf(str_temp,"%f",(totalBoxes[i].y)[j]);
+      strcat(str,str_temp);
+      strcat(str,";");
+      fputs(str,out);
+    }
+  }
+  fclose(out);
+  // return a list of boxes (TODO: package up a pointer to also return the number of boxes)
+  return totalBoxes;
+}
+
 //----------------------------------------------------------------------------//
 // HELPER FUNCTIONS
 double compute_quantile(double quantile, double *array, int sizeArray)
@@ -925,6 +1159,28 @@ double mean(const double *array, int sizeArray)
   double mean = sum/sizeArray;
   //printf("Mean: %f\n", mean);
   return mean;
+}
+
+double max(const double *array, int sizeArray)
+{
+  double max = array[0];
+  for(int i=0; i<sizeArray; i++) {
+    if(array[i] > max) {
+        max = array[i];
+    }
+  }
+  return max;
+}
+
+double min(const double *array, int sizeArray)
+{
+  double min = array[0];
+  for(int i=0; i<sizeArray; i++) {
+    if(array[i] < min) {
+        min = array[i];
+    }
+  }
+  return min;
 }
 
 void print_vector(double *vector, int size) {
