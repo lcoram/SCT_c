@@ -176,7 +176,9 @@ int main()
       double * box_z = z;
       double * box_t = t;
       */
-      
+      FILE *out1;
+      out1 = fopen("/home/louiseo/Documents/SCT/myrepo/sctBox.txt", "w");
+
       // loop over the boxes to call SCT
       for(int i=1; i<nB+1; i++) {
         int box_n = nAndBoxes[i].n;
@@ -272,11 +274,28 @@ int main()
         // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
                                       //double *x, double *y, double *z, double *vp)
         clock_t start = clock(), diff;
-        spatial_consistency_test(&t2, boxCentre, &numStationsInBox, box_x, box_y, box_z, box_t, t_out);
+        spatial_consistency_test(&t2, boxCentre, &box_n, box_x, box_y, box_z, box_t, t_out);
         diff = clock() - start;
         int msec = diff * 1000 / CLOCKS_PER_SEC;
         printf("SCT end\n");
         printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+        // save the original box for plotting
+        for(int j=0; j<box_n; j++) {
+          char str_temp[10];
+          char str[30];
+          sprintf(str_temp,"%d",0);
+          strcpy(str,str_temp);
+          strcat(str,";");
+          sprintf(str_temp,"%f",box_x[j]);
+          strcat(str,str_temp);
+          strcat(str,";");
+          sprintf(str_temp,"%f",box_y[j]);
+          strcat(str,str_temp);
+          strcat(str,";");
+          fputs(str,out1);
+          fputs("\n",out1);
+        }
 
         free(box_z);
         free(box_x);
@@ -284,7 +303,7 @@ int main()
         free(box_t);
         free(t_out);
       } // end of looping over boxes
-
+      fclose(out1);
       return 0;
     }
   }
@@ -736,6 +755,18 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
           int sf = gsl_vector_get(stationFlags,i);
           if(sf == 1) {
             printf("Removing column - counter_i: %i, i: %i \n", counter_i, i);
+            // actually remove the element from x,y,z,t and decrement numStationsInBox
+            numStationsInBox[0]--;
+            for(int k=0; k<numStationsInBox[0]; k++) {
+              if (k > i) {
+                // shift everything past here
+                x[k] = x[k+1];
+                y[k] = y[k+1];
+                z[k] = z[k+1];
+                t[k] = t[k+1];
+              }
+            }
+            printf("current numStations: %i \n", numStationsInBox[0]);
           }
           else if(sf == 0){ // add all rows and columns that we want to keep
             // update stationFlags
@@ -1137,13 +1168,12 @@ struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInB
   split_box(maxNumStationsInBox, minNumStationsInBox, inputBox, &totalNumBoxes, &totalBoxes);
 
   // save the boxes for plotting
-  FILE *out;
-  out = fopen("/home/louiseo/Documents/SCT/myrepo/outputBoxes.txt", "w");
-  fputs("id;x;y;",out);
+  FILE *out2;
+  out2 = fopen("/home/louiseo/Documents/SCT/myrepo/splitBoxes.txt", "w");
+  //fputs("id;x;y;",out);
   for(int i=0; i<totalNumBoxes; i++) {
     printf("box: %i size: %i \n", i, totalBoxes[i].n);
     for(int j=0; j<totalBoxes[i].n; j++) {
-      fputs("\n",out);
       char str_temp[10];
       char str[30];
       sprintf(str_temp,"%d",i);
@@ -1155,10 +1185,11 @@ struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInB
       sprintf(str_temp,"%f",(totalBoxes[i].y)[j]);
       strcat(str,str_temp);
       strcat(str,";");
-      fputs(str,out);
+      fputs(str,out2);
+      fputs("\n",out2);
     }
   }
-  fclose(out);
+  fclose(out2);
 
   printf("total number of boxes: %i \n", totalNumBoxes);
   // (TODO: package up a pointer to also return the number of boxes)
