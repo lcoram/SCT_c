@@ -35,6 +35,9 @@ ttot= observation (temperature)
 laftot= land area fraction (the user can decide whether to use it in the interpolation)
 */
 
+// this wrapper split the box, if needed (based on nmin and nmax),loops over the boxes and creates a vertical profile and calls SCT
+void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, double *gam, double *as, double *t2s);
+
 // Cristian's functions
 void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInBox,
                              double *x, double *y, double *z, double *t, double *vp); // this is the interface to R (then need pointers)?
@@ -67,6 +70,130 @@ void print_gsl_matrix(gsl_matrix *matrix, int rows, int columns);
 void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop);
 
 gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
+
+//----------------------------------------------------------------------------//
+void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, double *gam, double *as, double *t2s) {
+
+  // fill i with numbers 0 to n to keep track of indices
+  for(int i=0; i<ns[0]; i++) {
+    is[i] = i;
+  }
+
+  // put the input box in the struct
+  struct box inputBox;
+  inputBox.n = ns[0];
+  inputBox.x = x;
+  inputBox.y = y;
+  inputBox.z = z;
+  inputBox.t = t;
+
+  // split the box if needed
+  struct box * nAndBoxes = control_box_division(nmax[0], nmin[0], inputBox);
+
+  int nB = nAndBoxes[0].n;
+  printf("SCT wrapper - number of boxes: %i \n", nB);
+
+  // loop over the boxes to call SCT
+  for(int i=1; i<nB+1; i++) {
+    int box_n = nAndBoxes[i].n;
+    double * box_x = nAndBoxes[i].x;
+    double * box_y = nAndBoxes[i].y;
+    double * box_z = nAndBoxes[i].z;
+    double * box_t = nAndBoxes[i].t;
+    printf("box: %i \n", (i-1));
+    // everything below here renamed to box: n -> box_n, x -> box_x ...
+
+    // initial variables for VP (passed into function)
+    double gamma = gam[0];
+    double a = as[0];
+    // variables for SCT
+    double t2 = t2s[0]; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
+
+    double meanT = mean(box_t,box_n);
+
+    // make copies of z for the quantile computation
+    double * z_temp1;
+    double * z_temp2;
+    z_temp1 = malloc(sizeof(double) * box_n);
+    z_temp2 = malloc(sizeof(double) * box_n);
+    // allocate for output
+    double *t_out = malloc(sizeof(double) * box_n);
+    for(int i=0; i<box_n; i++) {
+      z_temp1[i] = box_z[i];
+      z_temp2[i] = box_z[i];
+      t_out[i] = -999;
+    }
+
+    double exact_p10 = compute_quantile(0.10, z_temp1, box_n);
+    double exact_p90 = compute_quantile(0.90, z_temp2, box_n);
+    free(z_temp1);
+    free(z_temp2);
+
+    // data (params) that needs to be passed into vp
+    double nd = (double) box_n; // cast + resize to double
+    // data (double *n, double *z, double *t, double *t_out)
+    double * data[4] = {&nd, box_z, box_t, t_out};
+
+    // vector (double t0, double gamma, double a, double h0, double h1i)
+    // Starting point for optimization
+    gsl_vector *input = gsl_vector_alloc(5);
+    gsl_vector_set(input,0,meanT);
+    gsl_vector_set(input,1,gamma);
+    gsl_vector_set(input,2,a);
+    gsl_vector_set(input,3,exact_p10);
+    gsl_vector_set(input,4,exact_p90);
+    printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+            meanT, gamma, a, exact_p10, exact_p90);
+
+    int status = vertical_profile_optimizer(input, data);
+    printf("status optimizer: %d\n", status);
+    printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+              gsl_vector_get(input, 0),
+              gsl_vector_get(input, 1),
+              gsl_vector_get(input, 2),
+              gsl_vector_get(input, 3),
+              gsl_vector_get(input, 4));
+
+    vertical_profile(box_n, box_z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
+      gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
+    // now have temperature profile (t_out)
+    gsl_vector_free(input);
+
+    for(int i=0; i<box_n; i++) {
+      assert(t_out[i] !=-999);
+    }
+
+    double boxCentre[2];
+    double maxX = max(box_x,box_n);
+    double maxY = max(box_y,box_n);
+    double minX = min(box_x,box_n);
+    double minY = min(box_y,box_n);
+    // halfway between min and max
+    double halfwayX = minX + abs(abs(maxX)-abs(minX))/2;
+    double halfwayY = minY + abs(abs(maxY)-abs(minY))/2;
+    boxCentre[0] = halfwayX;
+    boxCentre[1] = halfwayY;
+
+    int numStationsInBox = box_n;
+    printf("num stations: %d \n", numStationsInBox);
+
+    // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
+                                  //double *x, double *y, double *z, double *vp)
+    clock_t start = clock(), diff;
+    spatial_consistency_test(&t2, boxCentre, &box_n, box_x, box_y, box_z, box_t, t_out);
+    diff = clock() - start;
+    int msec = diff * 1000 / CLOCKS_PER_SEC;
+    printf("SCT end\n");
+    printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
+
+    free(box_z);
+    free(box_x);
+    free(box_y);
+    free(box_t);
+    free(t_out);
+  } // end of looping over boxes
+  return;
+}
 
 int main()
 {
@@ -749,14 +876,18 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
           //printf(" %f", gsl_vector_get(d, vec));
         //}
         //printf("\n");
+        // loop over the original length
+        //for(int original=0; original<n; original++) {}
 
         int counter_i = 0;
         for(int i=0; i<current_n; i++) {
           int sf = gsl_vector_get(stationFlags,i);
           if(sf == 1) {
             printf("Removing column - counter_i: %i, i: %i \n", counter_i, i);
+
             // actually remove the element from x,y,z,t and decrement numStationsInBox
             numStationsInBox[0]--;
+            /*
             for(int k=0; k<numStationsInBox[0]; k++) {
               if (k > i) {
                 // shift everything past here
@@ -767,8 +898,14 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
               }
             }
             printf("current numStations: %i \n", numStationsInBox[0]);
+            */
           }
           else if(sf == 0){ // add all rows and columns that we want to keep
+            // set the element in the output
+            x[counter_i] = x[i];
+            y[counter_i] = y[i];
+            z[counter_i] = z[i];
+            t[counter_i] = t[i];
             // update stationFlags
             gsl_vector_set(sf_temp,counter_i,0);
             // update d
@@ -1158,6 +1295,20 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
 
 struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInBox, struct box inputBox) {
 
+  // check is isn't already smaller than the max
+  if(inputBox.n < maxNumStationsInBox) {
+    struct box * nAndBoxes = malloc(sizeof(struct box) * 2);
+    // just return
+    nAndBoxes[0].n = 1;
+    nAndBoxes[1].n = inputBox.n;
+    nAndBoxes[1].x = inputBox.x;
+    nAndBoxes[1].y = inputBox.y;
+    nAndBoxes[1].z = inputBox.z;
+    nAndBoxes[1].t = inputBox.t;
+
+    return nAndBoxes;
+  }
+
   struct box * totalBoxes;
   int maxNumBoxes = floor(inputBox.n/minNumStationsInBox);
   printf("allocating memory for potential max number of boxes: %i \n",  maxNumBoxes);
@@ -1192,9 +1343,9 @@ struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInB
   fclose(out2);
 
   printf("total number of boxes: %i \n", totalNumBoxes);
+  struct box * nAndBoxes = malloc(sizeof(struct box) * (totalNumBoxes+1));
   // (TODO: package up a pointer to also return the number of boxes)
   // easiest just to use first box to encode how many boxes there are
-  struct box * nAndBoxes = malloc(sizeof(struct box) * (totalNumBoxes+1));
   nAndBoxes[0].n = totalNumBoxes;
   for(int b=1; b<(totalNumBoxes+1); b++) {
     nAndBoxes[b].n = totalBoxes[b-1].n;
