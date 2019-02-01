@@ -143,11 +143,11 @@ int main()
   // variables for SCT
   double t2 = 16; // input by user into SCT function (TITAN seems to use 16? Cristian said 25)
 
-  is = malloc(sizeof(double) * n);
+  int *is = malloc(sizeof(int) * n);
 
-  sct_wrapper(&n, &x, &y, &z, &t, &is, &maxNumStationsInBox, &minNumStationsInBox, &gamma &a, &t2)
+  sct_wrapper(&n, x, y, z, t, is, &maxNumStationsInBox, &minNumStationsInBox, &gamma, &a, &t2);
 
-  return;
+  return 0;
 }
 
 
@@ -261,7 +261,7 @@ void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, i
     // void spatial_consistency_test(int *t2, int *box, double *boxCentre, int *numStationsInBox,
                                   //double *x, double *y, double *z, double *vp)
     clock_t start = clock(), diff;
-    spatial_consistency_test(&t2, boxCentre, &box_n, box_x, box_y, box_z, box_t, &is, t_out);
+    spatial_consistency_test(&t2, boxCentre, &box_n, box_x, box_y, box_z, box_t, is, t_out);
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("SCT end\n");
@@ -636,18 +636,6 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
 
             // actually remove the element from x,y,z,t and decrement numStationsInBox
             numStationsInBox[0]--;
-            /*
-            for(int k=0; k<numStationsInBox[0]; k++) {
-              if (k > i) {
-                // shift everything past here
-                x[k] = x[k+1];
-                y[k] = y[k+1];
-                z[k] = z[k+1];
-                t[k] = t[k+1];
-              }
-            }
-            printf("current numStations: %i \n", numStationsInBox[0]);
-            */
           }
           else if(sf == 0){ // add all rows and columns that we want to keep
             // set the element in the output
