@@ -147,6 +147,11 @@ int main()
 
   sct_wrapper(&n, x, y, z, t, is, &maxNumStationsInBox, &minNumStationsInBox, &gamma, &a, &t2);
 
+  free(x);
+  free(y);
+  free(z);
+  free(t);
+
   return 0;
 }
 
@@ -267,10 +272,6 @@ void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, i
     printf("SCT end\n");
     printf("Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
 
-    free(box_z);
-    free(box_x);
-    free(box_y);
-    free(box_t);
     free(t_out);
   } // end of looping over boxes
   return;
