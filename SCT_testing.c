@@ -1081,10 +1081,10 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
     gsl_vector_memcpy(pog_temp,ares); // copies ares into pog_temp
     gsl_vector_mul(pog_temp,cvres); // multiplies ares by cvres
     //printf("pog: ");
-    //for(int i=0; i<current_n; i++) {
-      //gsl_vector_set(pog,i,(gsl_vector_get(pog_temp,i)/sig2o));
+    for(int i=0; i<current_n; i++) {
+      gsl_vector_set(pog,i,(gsl_vector_get(pog_temp,i)/sig2o));
       //printf(" %f", gsl_vector_get(pog,i));
-    //}
+    }
     //printf("\n");
     gsl_vector_free(pog_temp);
 
@@ -1171,10 +1171,25 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
   double halfwayY = minY + abs(abs(maxY)-abs(minY))/2;
   //printf("halfway x: %f y: %f \n", halfwayX, halfwayY);
 
+  // find the medians
+  double * temp_x;
+  double * temp_y;
+  temp_x = malloc(sizeof(double) * inputBox.n);
+  temp_y = malloc(sizeof(double) * inputBox.n);
+  memcpy(temp_x, inputBox.x, sizeof(double)*inputBox.n);
+  memcpy(temp_y, inputBox.y, sizeof(double)*inputBox.n);
+  //printf("memcpy x1: %f y1: %f \n", temp_x[0], temp_y[0]);
+  double medianX = gsl_stats_median(temp_x,1,inputBox.n);
+  double medianY = gsl_stats_median(temp_y,1,inputBox.n);
+  printf("median x: %f y: %f \n", medianX, medianY);
+  free(temp_x);
+  free(temp_y);
+
+
   // new boxes
   for(int i=0; i<inputBox.n; i++) {
     // (0,0)
-    if(inputBox.x[i] < halfwayX && inputBox.y[i] < halfwayY) {
+    if(inputBox.x[i] < medianX && inputBox.y[i] < medianY) {
       boxes[0].x[boxes[0].n] = inputBox.x[i];
       boxes[0].y[boxes[0].n] = inputBox.y[i];
       boxes[0].z[boxes[0].n] = inputBox.z[i];
@@ -1182,7 +1197,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[0].n++;
     }
     // (0,1)
-    if(inputBox.x[i] >= halfwayX && inputBox.y[i] < halfwayY) {
+    if(inputBox.x[i] >= medianX && inputBox.y[i] < medianY) {
       boxes[1].x[boxes[1].n] = inputBox.x[i];
       boxes[1].y[boxes[1].n] = inputBox.y[i];
       boxes[1].z[boxes[1].n] = inputBox.z[i];
@@ -1190,7 +1205,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[1].n++;
     }
     // (1,0)
-    if(inputBox.x[i] < halfwayX && inputBox.y[i] >= halfwayY) {
+    if(inputBox.x[i] < medianX && inputBox.y[i] >= medianY) {
       boxes[2].x[boxes[2].n] = inputBox.x[i];
       boxes[2].y[boxes[2].n] = inputBox.y[i];
       boxes[2].z[boxes[2].n] = inputBox.z[i];
@@ -1198,7 +1213,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[2].n++;
     }
     // (1,1)
-    if(inputBox.x[i] >= halfwayX && inputBox.y[i] >= halfwayY) {
+    if(inputBox.x[i] >= medianX && inputBox.y[i] >= medianY) {
       boxes[3].x[boxes[3].n] = inputBox.x[i];
       boxes[3].y[boxes[3].n] = inputBox.y[i];
       boxes[3].z[boxes[3].n] = inputBox.z[i];
@@ -1210,20 +1225,25 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
   int numBoxes = 4;
 
   // what kind of aspect ratio do the boxes have
-  // is the same for all boxes currently...
-  //for(int i=0; i<numBoxes; i++) {
-    double maX = max(boxes[0].x,boxes[0].n);
-    double maY = max(boxes[0].y,boxes[0].n);
-    double miX = min(boxes[0].x,boxes[0].n);
-    double miY = min(boxes[0].y,boxes[0].n);
-    double diffX = abs(maX - miX);
-    double diffY = abs(maY - miY);
-    //printf("diff: x %f y %f \n", diffX, diffY);
-  //}
+  // is the same for all boxes if use halfway, but not if use median
+  double * diffX = malloc(sizeof(double) * 4);
+  double * diffY = malloc(sizeof(double) * 4);
+  for(int i=0; i<numBoxes; i++) {
+    double maX = max(boxes[i].x,boxes[i].n);
+    double maY = max(boxes[i].y,boxes[i].n);
+    double miX = min(boxes[i].x,boxes[i].n);
+    double miY = min(boxes[i].y,boxes[i].n);
+    diffX[i] = abs(maX - miX);
+    diffY[i] = abs(maY - miY);
+    printf("diff: x %f y %f \n", diffX[i], diffY[i]);
+  }
+  double x01 = diffX[0] + diffX[1];
+  double y02 = diffY[0] + diffX[2];
+  printf("diff: x01 %f y02 %f \n", x01, y02);
 
   // first check which way it makes more sense to merge
   // ok to merge the way that keeps the boxes squarer?
-  if(diffY < diffX) {
+  if(y02 < x01) {
     // wide boxes, so preferable to merge 0,2 + 1,3 (vertically)
     int n1 = boxes[0].n + boxes[2].n;
     int n2 = boxes[1].n + boxes[3].n;
@@ -1240,7 +1260,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[1] = merge_boxes(boxes[2],boxes[3]);
     }
   }
-  else { // diffY > diffX
+  else { //
     // tall boxes, so preferable to merge 0,1 + 2,3 (horizontally)
     int n1 = boxes[0].n + boxes[1].n;
     int n2 = boxes[2].n + boxes[3].n;

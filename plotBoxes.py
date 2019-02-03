@@ -79,6 +79,7 @@ def main():
     mpl.xlim(np.max(xs),np.min(xs))
     print('max y: ' + str(np.max(ys)) + ' min y: ' + str(np.min(ys)))
     mpl.ylim(np.max(ys),np.min(ys))
+    mpl.gca().set_aspect(1)
     mpl.show()
 
 if __name__ == "__main__":
