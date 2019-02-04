@@ -36,15 +36,20 @@ laftot= land area fraction (the user can decide whether to use it in the interpo
 */
 
 // this wrapper split the box, if needed (based on nmin and nmax),loops over the boxes and creates a vertical profile and calls SCT
-void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, double *gam, double *as, double *t2s);
+void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2s);
 
 // Cristian's functions
 void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInBox,
                              double *x, double *y, double *z, double *t, double *vp); // this is the interface to R (then need pointers)?
 
-int vertical_profile_optimizer(gsl_vector *input, double **data);
+int vertical_profile_optimizer(gsl_vector *input, double **data, bool basic);
+
+double basic_vertical_profile_optimizer_function(const gsl_vector *v, void *data);
+
 double vertical_profile_optimizer_function(const gsl_vector *v, void *data); // GSL format
 
+void basic_vertical_profile(int nz, double *z,
+    double t0, double gamma, double a, double h0, double h1i, double *t_out);
 void vertical_profile(int nz, double *z,
     double t0, double gamma, double a, double h0, double h1i, double *t_out);
 
@@ -72,7 +77,7 @@ void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop);
 gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, double *gam, double *as, double *t2s) {
+void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2s) {
 
   // fill i with numbers 0 to n to keep track of indices
   for(int i=0; i<ns[0]; i++) {
@@ -145,17 +150,31 @@ void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, i
     printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
             meanT, gamma, a, exact_p10, exact_p90);
 
-    int status = vertical_profile_optimizer(input, data);
-    printf("status optimizer: %d\n", status);
-    printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-              gsl_vector_get(input, 0),
-              gsl_vector_get(input, 1),
-              gsl_vector_get(input, 2),
-              gsl_vector_get(input, 3),
-              gsl_vector_get(input, 4));
-
-    vertical_profile(box_n, box_z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
-      gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
+    // check if box too small, if so just use basic profile
+    if(box_n < nminprof[0]) {
+      int status = vertical_profile_optimizer(input, data, true);
+      printf("status optimizer: %d\n", status);
+      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+                gsl_vector_get(input, 0),
+                gsl_vector_get(input, 1),
+                gsl_vector_get(input, 2),
+                gsl_vector_get(input, 3),
+                gsl_vector_get(input, 4));
+      basic_vertical_profile(box_n, box_z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
+        gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
+    }
+    else { // calculate more complicated profile for box with larger n
+      int status = vertical_profile_optimizer(input, data, false);
+      printf("status optimizer: %d\n", status);
+      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+                gsl_vector_get(input, 0),
+                gsl_vector_get(input, 1),
+                gsl_vector_get(input, 2),
+                gsl_vector_get(input, 3),
+                gsl_vector_get(input, 4));
+      vertical_profile(box_n, box_z, gsl_vector_get(input, 0), gsl_vector_get(input, 1),
+        gsl_vector_get(input, 2), gsl_vector_get(input, 3), gsl_vector_get(input, 4), t_out);
+    }
     // now have temperature profile (t_out)
     gsl_vector_free(input);
 
@@ -356,7 +375,7 @@ int main()
         printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
                 meanT, gamma, a, exact_p10, exact_p90);
 
-        int status = vertical_profile_optimizer(input, data);
+        int status = vertical_profile_optimizer(input, data, false);
         printf("status optimizer: %d\n", status);
         printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
                   gsl_vector_get(input, 0),
@@ -528,7 +547,7 @@ int main()
 }
 
 //----------------------------------------------------------------------------//
-int vertical_profile_optimizer(gsl_vector *input, double **data)
+int vertical_profile_optimizer(gsl_vector *input, double **data, bool basic)
 {
   // optimize inputs for VP (using Nelder-Mead Simplex algorithm)
   const gsl_multimin_fminimizer_type *T = gsl_multimin_fminimizer_nmsimplex2;
@@ -546,7 +565,12 @@ int vertical_profile_optimizer(gsl_vector *input, double **data)
 
   /* Initialize method and iterate */
   vp_optim.n = 5;
-  vp_optim.f = vertical_profile_optimizer_function;
+  if(basic) {
+    vp_optim.f = basic_vertical_profile_optimizer_function;
+  }
+  else {
+    vp_optim.f = vertical_profile_optimizer_function;
+  }
   vp_optim.params = data;
 
   s = gsl_multimin_fminimizer_alloc (T, 5);
@@ -588,6 +612,63 @@ int vertical_profile_optimizer(gsl_vector *input, double **data)
   gsl_multimin_fminimizer_free (s);
   return status;
 }
+
+//----------------------------------------------------------------------------//
+/*
+#+ cost function used for optimization of tvertprof parameter
+tvertprofbasic2opt<-function(par) {
+  te<-tvertprof_basic(z=zopt,t0=par[1],gamma=argv$gamma.standard)
+  return(log((mean((te-topt)**2))**0.5))
+}
+*/
+double basic_vertical_profile_optimizer_function(const gsl_vector *v, void *data)
+{
+  double **p = (double **)data;
+  int n = (int) *p[0]; // is of type double but should be an int
+  double *z = p[1];
+  double *t = p[2];
+  double *t_out = p[3];
+
+  // the parameters to mess with
+  double t0 = gsl_vector_get(v,0);
+  double gamma = gsl_vector_get(v,1);
+  double a = gsl_vector_get(v,2);
+  double h0 = gsl_vector_get(v,3);
+  double h1i = gsl_vector_get(v,4);
+
+  // give everything to vp to compute t_out
+  basic_vertical_profile(n, z, t0, gamma, a, h0, h1i, t_out);
+  // RMS
+  double total = 0;
+  for(int i=0; i<n; i++) {
+    total += pow((t_out[i]-t[i]),2);
+  }
+  double value = log(pow((total / n),0.5));
+
+  return value;
+}
+
+/*
+#+ vertical profile of temperature (linear)
+tvertprof_basic<-function(z,t0,gamma) {
+# input
+#  z= array. elevations [m amsl]
+#  t0= numeric. temperature at z=0 [K or degC]
+#  gamma=numeric. temperature lapse rate [K/m]
+# Output
+#  t= array. temperature [K or degC]
+#------------------------------------------------------------------------------
+  return(t0+gamma*z)
+}
+*/
+void basic_vertical_profile(int nz, double *z,
+    double t0, double gamma, double a, double h0, double h1i, double *t_out)
+{
+  for(int i=0; i<nz; i++) {
+    t_out[i] = t0 + gamma*z[i];
+  }
+}
+
 
 //----------------------------------------------------------------------------//
 /*
