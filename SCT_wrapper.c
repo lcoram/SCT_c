@@ -492,7 +492,6 @@ void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof,
   double *t = currentBox[0].t;
   printf("SCT - number stations %i \n", n);
 
-  flags = malloc(sizeof(int) * n);
   // fill with 0 to keep track of stations that are flagged
   for(int i=0; i<n; i++) {
     flags[i] = 0;
