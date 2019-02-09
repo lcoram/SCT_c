@@ -13,11 +13,11 @@
 #include <gsl/gsl_blas.h>
 
 // export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/
-// compile: gcc -L/user/local/lib SCT_rewrite.c -lm -lgsl -lgslcblas
+// compile: gcc -L/user/local/lib SCT_wrapper.c -lm -lgsl -lgslcblas
 
 
 // this wrapper split the box, if needed (based on nmin and nmax),loops over the boxes and creates a vertical profile and calls SCT
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
 
 struct box {
   int  n;
@@ -27,7 +27,7 @@ struct box {
   double *t;
 };
 
-void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg);
+void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
 
 int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
 // optimizer functions
@@ -143,9 +143,9 @@ int main()
   }
 
   // allocate memory for the indices
-  int *is = malloc(sizeof(int) * n);
+  int *flags = malloc(sizeof(int) * n);
 
-  sct_wrapper(&n, x, y, z, t, is, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg);
+  sct_wrapper(&n, x, y, z, t, flags, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg);
 
   free(x);
   free(y);
@@ -160,12 +160,7 @@ int main()
 
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg) {
-
-  // fill i with numbers 0 to n to keep track of indices
-  for(int i=0; i<n[0]; i++) {
-    is[i] = i;
-  }
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg) {
 
   // put the input box in the struct
   struct box inputBox;
@@ -189,67 +184,17 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, in
     double * box_z = nAndBoxes[i].z;
     double * box_t = nAndBoxes[i].t;
     printf("box: %i \n", (i-1));
-    // everything below here renamed to box: n -> box_n, x -> box_x ...
 
-    // initial variables for VP (passed into function)
-    double gamma = gam[0];
-    double a = as[0];
-
-    double meanT = mean(box_t,box_n);
-
-    // make copies of z for the quantile computation
-    double * z_temp1;
-    double * z_temp2;
-    z_temp1 = malloc(sizeof(double) * box_n);
-    z_temp2 = malloc(sizeof(double) * box_n);
-    // allocate for output
-    double *vp = malloc(sizeof(double) * box_n);
-    for(int i=0; i<box_n; i++) {
-      z_temp1[i] = box_z[i];
-      z_temp2[i] = box_z[i];
-      vp[i] = -999;
-    }
-    double exact_p10 = compute_quantile(0.10, z_temp1, box_n);
-    double exact_p90 = compute_quantile(0.90, z_temp2, box_n);
-    free(z_temp1);
-    free(z_temp2);
-
-    // vector (double t0, double gamma, double a, double h0, double h1i)
-    // Starting point for optimization
-    gsl_vector *input = gsl_vector_alloc(5);
-    gsl_vector_set(input,0,meanT);
-    gsl_vector_set(input,1,gamma);
-    gsl_vector_set(input,2,a);
-    gsl_vector_set(input,3,exact_p10);
-    gsl_vector_set(input,4,exact_p90);
-    printf ("Input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-            meanT, gamma, a, exact_p10, exact_p90);
-    // int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
-    int status = vertical_profile_optimizer(input, &nAndBoxes[i], nminprof[0], vp);
-    printf("status optimizer: %d\n", status);
-    printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-            gsl_vector_get(input, 0),
-            gsl_vector_get(input, 1),
-            gsl_vector_get(input, 2),
-            gsl_vector_get(input, 3),
-            gsl_vector_get(input, 4));
-    // now have temperature profile (vp)
-
-    for(int i=0; i<box_n; i++) {
-      assert(vp[i] !=-999);
-    }
 
     printf("num stations before SCT: %d \n", box_n);
     clock_t start = clock(), diff;
-    // void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg);
-    spatial_consistency_test(&nAndBoxes[i], is, input, nminprof[0], vp, t2pos, t2neg);
+    // void spatial_consistency_test(struct box *currentBox, bool *flags,  int *nminprof, double *t2pos, double *t2neg);
+    spatial_consistency_test(&nAndBoxes[i], flags, nminprof, gam, as, t2pos, t2neg);
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("SCT end - Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
     printf("num stations after SCT: %d \n", box_n);
 
-    gsl_vector_free(input);
-    free(vp);
   } // end of looping over boxes
   return;
 }
@@ -537,9 +482,8 @@ void vertical_profile(int nz, double *z,
 #   been applied; (ii) -1 if just one station in the domain
 #
 */
-void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg)
+void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg)
 {
-  int sizeWhenProfileCalculated = currentBox[0].n;
   // break out the box for simplicity
   int n = currentBox[0].n;
   double *x = currentBox[0].x;
@@ -547,6 +491,63 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
   double *z = currentBox[0].z;
   double *t = currentBox[0].t;
   printf("SCT - number stations %i \n", n);
+
+  flags = malloc(sizeof(int) * n);
+  // fill with 0 to keep track of stations that are flagged
+  for(int i=0; i<n; i++) {
+    flags[i] = 0;
+  }
+
+  /*
+  Stuff for VP
+  */
+  double gamma = gam[0];
+  double a = as[0];
+  double meanT = mean(t,n);
+  // make copies of z for the quantile computation
+  double * z_temp1;
+  double * z_temp2;
+  z_temp1 = malloc(sizeof(double) * n);
+  z_temp2 = malloc(sizeof(double) * n);
+  // allocate for output
+  double *vp = malloc(sizeof(double) * n);
+  for(int i=0; i<n; i++) {
+    z_temp1[i] = z[i];
+    z_temp2[i] = z[i];
+    vp[i] = -999;
+  }
+  double exact_p10 = compute_quantile(0.10, z_temp1, n);
+  double exact_p90 = compute_quantile(0.90, z_temp2, n);
+  free(z_temp1);
+  free(z_temp2);
+  // vector (double t0, double gamma, double a, double h0, double h1i)
+  // Starting point for optimization
+  gsl_vector *vp_input = gsl_vector_alloc(5);
+  gsl_vector_set(vp_input,0,meanT);
+  gsl_vector_set(vp_input,1,gamma);
+  gsl_vector_set(vp_input,2,a);
+  gsl_vector_set(vp_input,3,exact_p10);
+  gsl_vector_set(vp_input,4,exact_p90);
+  printf ("VP input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+          meanT, gamma, a, exact_p10, exact_p90);
+  // calculate VP
+  // int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
+  int status = vertical_profile_optimizer(vp_input, currentBox, nminprof[0], vp);
+  printf("status optimizer: %d\n", status);
+  printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+          gsl_vector_get(vp_input, 0),
+          gsl_vector_get(vp_input, 1),
+          gsl_vector_get(vp_input, 2),
+          gsl_vector_get(vp_input, 3),
+          gsl_vector_get(vp_input, 4));
+  // now have temperature profile (vp)
+  for(int i=0; i<n; i++) {
+    assert(vp[i] !=-999);
+  }
+  // done calculating VP for the first time
+  int sizeWhenProfileCalculated = currentBox[0].n;
+  // END of calculating vp
+
   /*
   # distance matrices
   disth<-(outer(xtot[j],xtot[j],FUN="-")**2.+ outer(ytot[j],ytot[j],FUN="-")**2.)**0.5
@@ -555,12 +556,6 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
   double** disth = malloc(sizeof(double*)*n);
   double** distz = malloc(sizeof(double*)*n);
   double *Dh = malloc(sizeof(double)*n);
-
-  //print_vector(x,n);
-  //print_vector(y,n);
-  //print_vector(z,n);
-  //print_vector(t,n);
-  //print_vector(vp,n);
 
   // no need to select j since already only have those for a particular box
   // outer product of the matrices
@@ -584,8 +579,7 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
     Dh[i] = compute_quantile(0.10, Dh_vector, n-1);
     free(Dh_vector);
   }
-  //print_matrix(disth,n,n);
-  //print_matrix(distz,n,n);
+
   /*
   # set to optimal Dh for the SCT
   # either Dhmin or the average 10-percentile of the set of distances between a
@@ -606,11 +600,16 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
   int Dz = 200; // good value (use this default)
   gsl_matrix *S, *Sinv;
   S = gsl_matrix_alloc(n,n);
+  double **S_global = malloc(sizeof(double*)*n);
+  for(int i=0; i<n; i++) {
+    S_global[i] = malloc(sizeof(double)*n);
+  }
   Sinv = gsl_matrix_alloc(n,n);
   for(int i=0; i<n; i++) {
     for(int j=0; j<n; j++) {
       //  S = exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
       double value = exp(-.5*pow((disth[i][j]/Dh_mean),2)-.5*pow((distz[i][j]/Dz),2));
+      S_global[i][j] = value;
       if(i == j) { // weight the diagonal?? (0.5 default)
         // TODO: make this added value user provided
         value = value + 0.5;
@@ -622,17 +621,18 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
   printf("created the S matrix - size1 %lu size2 %lu \n", S->size1, S->size2);
   //print_gsl_matrix(S,n,n);
 
-  gsl_vector *stationFlags;
-  stationFlags = gsl_vector_alloc(n);
   // d<-topt-tb
   gsl_vector *d;
   d = gsl_vector_alloc(n);
+  double *d_global = malloc(sizeof(double)*n);
   for(int i=0; i<n; i++) {
-    // initialize with 0 (flag no stations)
-    gsl_vector_set(stationFlags,i,0);
     gsl_vector_set(d,i,(t[i]-vp[i])); // difference between actual temp and temperature from vertical profile
+    d_global[i] = (t[i]-vp[i]);
   }
 
+  /* ---------------------------------------------------
+  Beginning of real SCT looping
+  ------------------------------------------------------*/
   bool first = true;
   int current_n = n;
   int throwOut = 0;
@@ -675,6 +675,12 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
         # from S+R go back to S
         diag(S)<-diag(S)-eps2.vec
         */
+        /* --------------------------------------------------
+        have 3 sizes:
+        n = original
+        current_n = current size of vectors / matrices
+        newSize = size that will be current n after throwing things out
+        ---------------------------------------------------- */
         int newSize = current_n - throwOut;
         gsl_vector *sf_temp = gsl_vector_alloc(newSize);
         gsl_vector *d_temp = gsl_vector_alloc(newSize);
@@ -688,48 +694,32 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
         // loop over the original length
         //for(int original=0; original<n; original++) {}
 
-        int counter_i = 0;
-        for(int i=0; i<current_n; i++) {
-          int sf = gsl_vector_get(stationFlags,i);
-          if(sf == 1) {
-            printf("Removing column - counter_i: %i, i: %i \n", counter_i, i);
-
-            // actually remove the element from x,y,z,t and decrement numStationsInBox
-            currentBox[0].n--;
+        int li = 0;
+        for(int i=0; i<n; i++) { // this needs to loop over current_n
+          if(flags[i] == 2) { // stations flagged for removal
+            printf("Removing column - li: %i, i: %i \n", li, i);
+            flags[i] = 1; // newly removed station now set to 1
           }
-          else if(sf == 0){ // add all rows and columns that we want to keep
-            // set the element in the output
-            x[counter_i] = x[i];
-            y[counter_i] = y[i];
-            z[counter_i] = z[i];
-            t[counter_i] = t[i];
-            // used to keep track of the indices being removed (or being kept)
-            is[counter_i] = is[i];
-            vp[counter_i] = vp[i];
-            // update stationFlags
-            gsl_vector_set(sf_temp,counter_i,0);
+          else if(flags[i] == 0){ // all rows and columns that we want to keep
             // update d
-            gsl_vector_set(d_temp,counter_i,gsl_vector_get(d,i));
-            int counter_j = 0;
-            for(int j=0; j<current_n; j++) {
-              int sfj = gsl_vector_get(stationFlags,j);
-              if(sfj == 0) {
+            gsl_vector_set(d_temp,li, d_global[i]);
+            int lj = 0;
+            for(int j=0; j<n; j++) { // this needs to loop over current_n
+              if(flags[j] == 0) {
                 // update S
-                gsl_matrix_set(s_temp, counter_i, counter_j, gsl_matrix_get(S, i, j));
-                counter_j++;
+                gsl_matrix_set(s_temp, li, lj, S_global[i][j]);
+                lj++;
               }
-              else if (sfj == 1){
-                //printf("Removing row - counter_j: %i, j: %i \n", counter_j, j);
+              else if (flags[j] == 1){
+                //printf("Removing row - lj: %i, j: %i \n", lj, j);
               }
             }
-            assert(counter_j == newSize);
-            counter_i++;
+            assert(lj == newSize);
+            li++;
           }
         }
-        assert(counter_i == newSize);
+        assert(li == newSize);
         current_n = newSize;
-        gsl_vector_free(stationFlags);
-        stationFlags = sf_temp;
         gsl_vector_free(d);
         d = d_temp;
         gsl_matrix_free(S);
@@ -739,7 +729,6 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
           //printf(" %f", gsl_vector_get(d, vec));
         //}
         //printf("\n");
-        assert(stationFlags->size == current_n);
         assert(d->size == current_n);
         assert(S->size1 == current_n);
         assert(S->size2 == current_n);
@@ -757,8 +746,9 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
         if(percentageSizeChange > 0.1) {
           printf("size of box has changed significantly (recalculate vp): %f \n", percentageSizeChange);
           // gsl_vector *vp_input, double *vp
-          int status = vertical_profile_optimizer(vp_input, currentBox, nminprof, vp);
+          int status = vertical_profile_optimizer(vp_input, currentBox, nminprof[0], vp);
           printf("status optimizer: %d\n", status);
+          sizeWhenProfileCalculated = current_n;
         }
 
         // weight the diagonal again
@@ -807,11 +797,10 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
         gsl_matrix_free(aux);
       }
       */
-    }
+    } // end else
     printf("Current n (end of matrix and vector updates) %i \n", current_n);
     printf("d size %lu \n", d->size);
     printf("S size1 %lu size2 %lu \n", S->size1, S->size2);
-    assert(stationFlags->size == current_n);
     assert(d->size == current_n);
     assert(S->size1 == current_n);
     assert(S->size2 == current_n);
@@ -829,24 +818,43 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
     // this function does not appear to work properly!!!
     //gsl_blas_dgemv(CblasNoTrans, 1, Sinv, d, 1, Sinv_d); // crossprod Sinv & d to create Sinv_d
     //gsl_blas_dgemv(CblasNoTrans, 1, S, Sinv_d, 1, ares_temp); // crossprod S and Sinv_d to create ares_temp
-    for(int i=0; i<current_n; i++) {
+    int li = 0;
+    for(int i=0; i<n; i++) {
       double acc = 0;
-      for(int j=0; j<current_n; j++) {
-        acc += gsl_matrix_get(Sinv,i,j)*gsl_vector_get(d,j);
+      int lj = 0;
+      if(flags[i] == 0) {
+        for(int j=0; j<n; j++) {
+          if(flags[j] == 0) {
+            acc += gsl_matrix_get(Sinv,li,lj)*gsl_vector_get(d,lj);
+            lj++;
+          }
+        }
+        gsl_vector_set(Sinv_d, li, acc);
+        li++;
       }
-      gsl_vector_set(Sinv_d, i, acc);
     }
-    for(int i=0; i<current_n; i++) {
+    li = 0;
+    for(int i=0; i<n; i++) {
       double acc = 0;
-      for(int j=0; j<current_n; j++) {
-        acc += gsl_matrix_get(S,i,j)*gsl_vector_get(Sinv_d,j);
+      int lj = 0;
+      if(flags[i] == 0) {
+        for(int j=0; j<n; j++) {
+          if(flags[j] == 0) {
+            acc += gsl_matrix_get(S,li,lj)*gsl_vector_get(Sinv_d,lj);
+            lj++;
+          }
+        }
+        gsl_vector_set(ares_temp, li, acc);
+        li++;
       }
-      gsl_vector_set(ares_temp, i, acc);
     }
-
-    for(int i=0; i<current_n; i++) {
-      gsl_vector_set(Zinv,i,(1/gsl_matrix_get(Sinv,i,i))); //Zinv<-1/diag(SRinv)
-      gsl_vector_set(ares,i,(gsl_vector_get(ares_temp,i)-gsl_vector_get(d,i))); // ares<-crossprod(S,SRinv.d)-d[sel]
+    li = 0;
+    for(int i=0; i<n; i++) {
+      if(flags[i] == 0) {
+        gsl_vector_set(Zinv,li,(1/gsl_matrix_get(Sinv,li,li))); //Zinv<-1/diag(SRinv)
+        gsl_vector_set(ares,li,(gsl_vector_get(ares_temp,li)-gsl_vector_get(d,li))); // ares<-crossprod(S,SRinv.d)-d[sel]
+        li++;
+      }
     }
     gsl_vector_free(ares_temp);
     //printf("Zinv: ");
@@ -857,8 +865,12 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
     // cvres<--Zinv*SRinv.d
     gsl_vector *cvres;
     cvres = gsl_vector_alloc(current_n);
+    li = 0;
     for(int i=0; i<current_n; i++) {
-      gsl_vector_set(cvres,i,-1*gsl_vector_get(Zinv,i));
+      if(flags[i] == 0) {
+        gsl_vector_set(cvres,li,-1*gsl_vector_get(Zinv,li));
+        li++;
+      }
     }
     gsl_vector_mul(cvres,Sinv_d); // multiplies -Zinv(initial cvres) by Sinv_d (result stored in cvres)
 
@@ -866,14 +878,22 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
     gsl_vector *sig2o_temp, *negAres_temp;
     sig2o_temp = gsl_vector_alloc(current_n);
     negAres_temp = gsl_vector_alloc(current_n);
-    for(int i=0; i<current_n; i++) {
-      gsl_vector_set(negAres_temp,i,-1*gsl_vector_get(ares,i));
+    li = 0;
+    for(int i=0; i<n; i++) {
+      if(flags[i] == 0) {
+        gsl_vector_set(negAres_temp,li,-1*gsl_vector_get(ares,li));
+        li++;
+      }
     }
     gsl_vector_memcpy(sig2o_temp,d); // copies d into sig2o_temp
     gsl_vector_mul(sig2o_temp,negAres_temp); // multiplies d by -ares
     double sig2o = 0;
-    for(int i=0; i<current_n; i++) {
-      sig2o = sig2o + gsl_vector_get(sig2o_temp,i);
+    li = 0;
+    for(int i=0; i<n; i++) {
+      if(flags[i] == 0) {
+        sig2o = sig2o + gsl_vector_get(sig2o_temp,li);
+        li++;
+      }
     }
     //printf("d: ");
     //print_gsl_vector(d,current_n);
@@ -898,8 +918,9 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
     gsl_vector_memcpy(pog_temp,ares); // copies ares into pog_temp
     gsl_vector_mul(pog_temp,cvres); // multiplies ares by cvres
     //printf("pog: ");
-    for(int i=0; i<current_n; i++) {
-      gsl_vector_set(pog,i,(gsl_vector_get(pog_temp,i)/sig2o));
+
+    for(int li=0; li<current_n; li++) {
+      gsl_vector_set(pog,li,(gsl_vector_get(pog_temp,li)/sig2o));
       //printf(" %f", gsl_vector_get(pog,i));
     }
     //printf("\n");
@@ -907,17 +928,17 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
 
     // figure out if we should flag a station
     throwOut = 0; // reset this number
-    for(int i=0; i<current_n; i++) {
-      // haven't already thrown it out
-      int sf = gsl_vector_get(stationFlags,i);
-      if(sf != 1) {
+    li = 0;
+    for(int i=0; i<n; i++) {
+      if(flags[i] == 0) {
         // does it fail the test
-        if((gsl_vector_get(cvres,i) > 0 && gsl_vector_get(pog,i) > t2pos[i]) ||
-           (gsl_vector_get(cvres,i) < 0 && gsl_vector_get(pog,i) > t2neg[i])) {
-             //printf("throw out this piece of data: %f\n", gsl_vector_get(pog,i));
-             throwOut = throwOut + 1;
-             gsl_vector_set(stationFlags,i,1);
+        if((gsl_vector_get(cvres,li) > 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
+          (gsl_vector_get(cvres,li) < 0 && gsl_vector_get(pog,li) > t2neg[i])) {
+          //printf("throw out this piece of data: %f\n", gsl_vector_get(pog,i));
+          throwOut = throwOut + 1;
+          flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
+        li++;
       }
     }
     printf("throw out: %i \n",throwOut);
@@ -933,10 +954,11 @@ void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_in
       gsl_vector_free(d);
       gsl_matrix_free(S);
       gsl_matrix_free(Sinv);
+      free(vp);
       break;
     }
-  }
-  // end of while SCT loop
+  } // end of while SCT loop
+
 }
 
 struct box merge_boxes(struct box box1, struct box box2) {
