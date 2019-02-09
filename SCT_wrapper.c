@@ -17,7 +17,7 @@
 
 
 // this wrapper split the box, if needed (based on nmin and nmax),loops over the boxes and creates a vertical profile and calls SCT
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, double *corep, double *pog, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
 
 struct box {
   int  n;
@@ -27,7 +27,7 @@ struct box {
   double *t;
 };
 
-void spatial_consistency_test(struct box *currentBox, int *is, double *corep, double *pog, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg);
+void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg);
 
 int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
 // optimizer functions
@@ -144,10 +144,8 @@ int main()
 
   // allocate memory for the indices
   int *is = malloc(sizeof(int) * n);
-  double *corep = malloc(sizeof(double) * n);
-  double *pog = malloc(sizeof(double) * n);
 
-  sct_wrapper(&n, x, y, z, t, is, corep, pog, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg);
+  sct_wrapper(&n, x, y, z, t, is, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg);
 
   free(x);
   free(y);
@@ -155,9 +153,6 @@ int main()
   free(t);
   free(t2pos);
   free(t2neg);
-  free(is);
-  free(corep);
-  free(pog);
 
   return 0;
 }
@@ -165,14 +160,11 @@ int main()
 
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, double* corep, double *pog, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg) {
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg) {
 
-  printf("SCT - wrapper: start\n");
   // fill i with numbers 0 to n to keep track of indices
   for(int i=0; i<n[0]; i++) {
     is[i] = i;
-    corep[i] = 0;
-    pog[i] = 0;
   }
 
   // put the input box in the struct
@@ -250,7 +242,7 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *is, do
     printf("num stations before SCT: %d \n", box_n);
     clock_t start = clock(), diff;
     // void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg);
-    spatial_consistency_test(&nAndBoxes[i], is, corep, pog, input, nminprof[0], vp, t2pos, t2neg);
+    spatial_consistency_test(&nAndBoxes[i], is, input, nminprof[0], vp, t2pos, t2neg);
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("SCT end - Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
@@ -545,7 +537,7 @@ void vertical_profile(int nz, double *z,
 #   been applied; (ii) -1 if just one station in the domain
 #
 */
-void spatial_consistency_test(struct box *currentBox, int *is, double *corep, double *pog_out, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg)
+void spatial_consistency_test(struct box *currentBox, int *is, gsl_vector *vp_input, int nminprof, double *vp, double *t2pos, double *t2neg)
 {
   int sizeWhenProfileCalculated = currentBox[0].n;
   // break out the box for simplicity
@@ -713,8 +705,6 @@ void spatial_consistency_test(struct box *currentBox, int *is, double *corep, do
             t[counter_i] = t[i];
             // used to keep track of the indices being removed (or being kept)
             is[counter_i] = is[i];
-            corep[counter_i] = corep[i];
-            pog_out[counter_i] = pog_out[i];
             vp[counter_i] = vp[i];
             // update stationFlags
             gsl_vector_set(sf_temp,counter_i,0);
@@ -885,19 +875,12 @@ void spatial_consistency_test(struct box *currentBox, int *is, double *corep, do
     for(int i=0; i<current_n; i++) {
       sig2o = sig2o + gsl_vector_get(sig2o_temp,i);
     }
-
     //printf("d: ");
     //print_gsl_vector(d,current_n);
     //printf("neg ares: ");
     //print_gsl_vector(negAres_temp,current_n);
     sig2o = sig2o/current_n;
     printf("sig2o: %f\n", sig2o);
-
-    // Compute corep
-    for(int i=0; i<current_n; i++) {
-       corep[i] = gsl_vector_get(sig2o_temp, i) / sig2o;
-    }
-
     gsl_vector_free(sig2o_temp);
     gsl_vector_free(negAres_temp);
 
@@ -916,9 +899,7 @@ void spatial_consistency_test(struct box *currentBox, int *is, double *corep, do
     gsl_vector_mul(pog_temp,cvres); // multiplies ares by cvres
     //printf("pog: ");
     for(int i=0; i<current_n; i++) {
-      double curr_pog = (gsl_vector_get(pog_temp,i)/sig2o);
-      gsl_vector_set(pog,i,curr_pog);
-      pog_out[i] = curr_pog;
+      gsl_vector_set(pog,i,(gsl_vector_get(pog_temp,i)/sig2o));
       //printf(" %f", gsl_vector_get(pog,i));
     }
     //printf("\n");
@@ -931,8 +912,8 @@ void spatial_consistency_test(struct box *currentBox, int *is, double *corep, do
       int sf = gsl_vector_get(stationFlags,i);
       if(sf != 1) {
         // does it fail the test
-        if((gsl_vector_get(cvres,i) < 0 && gsl_vector_get(pog,i) > t2pos[i]) ||
-           (gsl_vector_get(cvres,i) > 0 && gsl_vector_get(pog,i) > t2neg[i])) {
+        if((gsl_vector_get(cvres,i) > 0 && gsl_vector_get(pog,i) > t2pos[i]) ||
+           (gsl_vector_get(cvres,i) < 0 && gsl_vector_get(pog,i) > t2neg[i])) {
              //printf("throw out this piece of data: %f\n", gsl_vector_get(pog,i));
              throwOut = throwOut + 1;
              gsl_vector_set(stationFlags,i,1);
