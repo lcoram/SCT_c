@@ -879,9 +879,9 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
          corep_out[i] = gsl_vector_get(d, li)*gsl_vector_get(ares, li) * -1 /sig2o;
          pog_out[i] = gsl_vector_get(pog, li);
         // does it fail the test
-        if((gsl_vector_get(cvres,li) > 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
-          (gsl_vector_get(cvres,li) < 0 && gsl_vector_get(pog,li) > t2neg[i])) {
-          printf("throw out this piece of data: %f %f\n", t[i], gsl_vector_get(pog,li));
+        if((gsl_vector_get(cvres,li) < 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
+          (gsl_vector_get(cvres,li) >= 0 && gsl_vector_get(pog,li) > t2neg[i])) {
+          printf("throw out this piece of data: %f cvres=%f pog=%f corep=%f\n", t[i], gsl_vector_get(cvres, li), gsl_vector_get(pog,li), corep_out[i]);
           throwOut = throwOut + 1;
           flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
