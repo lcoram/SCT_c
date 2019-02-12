@@ -16,33 +16,49 @@
 // compile: gcc -L/user/local/lib SCT_wrapper.c -lm -lgsl -lgslcblas
 
 
-// this wrapper split the box, if needed (based on nmin and nmax),loops over the boxes and creates a vertical profile and calls SCT
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
+/*
+ * Runs the SCT by splitting into boxes first
+ *
+ * Arguments:
+ *    n: Number of stations
+ *    x: Array of x-position (in meters in some projection)
+ *    y: Array of y-position (in meters in some projection)
+ *    z: Array of station altitudes (in meters)
+ *    t: Array of temperatures (in any units)
+ *    nmax: Split a box into two if it contains more than this number of stations
+ *    nmin: Don't allow boxes to have fewer than this  a box into two if it contains more than this number of stations
+ *
+ * Outputs:
+ *    flags: Output array of flags, one for each station. 0 means passed the SCT, 1 means fails.
+ * */
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
 
+/*
+ * Structure to contain station information for a box
+ * */
 struct box {
   int  n;
   double *x;
   double *y;
   double *z;
   double *t;
+  int *i;
 };
 
-void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg);
+void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
 
 int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
 // optimizer functions
 double basic_vertical_profile_optimizer_function(const gsl_vector *v, void *data);
 double vertical_profile_optimizer_function(const gsl_vector *v, void *data); // GSL format
 // vp profile calculations
-void basic_vertical_profile(int nz, double *z,
-                          double t0, double gamma, double a, double h0, double h1i, double *t_out);
-void vertical_profile(int nz, double *z,
-                     double t0, double gamma, double a, double h0, double h1i, double *t_out);
+void basic_vertical_profile(int nz, double *z, double t0, double gamma, double a, double h0, double h1i, double *t_out);
+void vertical_profile(int nz, double *z, double t0, double gamma, double a, double h0, double h1i, double *t_out);
 
 // box division controller (other functions used by this controller not forward declared)
 struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInBox, struct box inputBox);
 
-// helpers
+// Helper functions
 double compute_quantile(double quantile, double *array, int sizeArray);
 double mean(const double *array, int sizeArray);
 double max(const double *array, int sizeArray);
@@ -57,7 +73,7 @@ gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg) {
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog) {
 
   // put the input box in the struct
   struct box inputBox;
@@ -66,6 +82,9 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags,
   inputBox.y = y;
   inputBox.z = z;
   inputBox.t = t;
+  inputBox.i = malloc(sizeof(int) * n[0]);
+  for(int i = 0; i < n[0]; i++)
+     inputBox.i[i] = i;
 
   // split the box if needed
   struct box * nAndBoxes = control_box_division(nmax[0], nmin[0], inputBox);
@@ -80,19 +99,48 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *flags,
     double * box_y = nAndBoxes[i].y;
     double * box_z = nAndBoxes[i].z;
     double * box_t = nAndBoxes[i].t;
+    int * box_i = nAndBoxes[i].i;
     printf("box: %i \n", (i-1));
 
-
+    // Run the SCT on the current box
     printf("num stations before SCT: %d \n", box_n);
     clock_t start = clock(), diff;
-    // void spatial_consistency_test(struct box *currentBox, bool *flags,  int *nminprof, double *t2pos, double *t2neg);
-    spatial_consistency_test(&nAndBoxes[i], flags, nminprof, gam, as, t2pos, t2neg);
+    int* local_flags = malloc(sizeof(int) * box_n);
+    double* local_t2pos = malloc(sizeof(double) * box_n);
+    double* local_t2neg = malloc(sizeof(double) * box_n);
+    double* local_corep = malloc(sizeof(double) * box_n);
+    double* local_pog = malloc(sizeof(double) * box_n);
+    for(int r = 0; r < box_n; r++) {
+       if(!(box_i[r] < n[0]))
+          printf("%d %d\n", box_i[r], n[0]);
+       assert(box_i[r] < n[0]);
+       local_t2pos[r] = t2pos[box_i[r]];
+       local_t2neg[r] = t2neg[box_i[r]];
+       local_corep[r] = corep[box_i[r]];
+       local_pog[r] = pog[box_i[r]];
+    }
+    spatial_consistency_test(&nAndBoxes[i], nminprof, gam, as, local_t2pos, local_t2neg, local_flags, local_corep, local_pog);
+
+    for(int r = 0; r < box_n; r++) {
+       assert(box_i[r] < n[0]);
+       flags[box_i[r]] = local_flags[r];
+       corep[box_i[r]] = local_corep[r];
+       pog[box_i[r]] = local_pog[r];
+    }
+    free(local_t2pos);
+    free(local_t2neg);
+    free(local_flags);
+    free(local_corep);
+    free(local_pog);
+
+    // Merge flags back into global array
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("SCT end - Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
     printf("num stations after SCT: %d \n", box_n);
 
   } // end of looping over boxes
+  free(inputBox.i);
   return;
 }
 
@@ -379,7 +427,7 @@ void vertical_profile(int nz, double *z,
 #   been applied; (ii) -1 if just one station in the domain
 #
 */
-void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg)
+void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double* corep_out, double* pog_out)
 {
   // break out the box for simplicity
   int n = currentBox[0].n;
@@ -827,10 +875,13 @@ void spatial_consistency_test(struct box *currentBox, int *flags, int *nminprof,
     li = 0;
     for(int i=0; i<n; i++) {
       if(flags[i] == 0) {
+         assert(sig2o > 0);
+         corep_out[i] = gsl_vector_get(d, li)*gsl_vector_get(ares, li) * -1 /sig2o;
+         pog_out[i] = gsl_vector_get(pog, li);
         // does it fail the test
         if((gsl_vector_get(cvres,li) > 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
           (gsl_vector_get(cvres,li) < 0 && gsl_vector_get(pog,li) > t2neg[i])) {
-          //printf("throw out this piece of data: %f\n", gsl_vector_get(pog,i));
+          printf("throw out this piece of data: %f %f\n", t[i], gsl_vector_get(pog,li));
           throwOut = throwOut + 1;
           flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
@@ -865,18 +916,21 @@ struct box merge_boxes(struct box box1, struct box box2) {
   mergedBox.y = malloc(sizeof(double) * mergedBox.n);
   mergedBox.z = malloc(sizeof(double) * mergedBox.n);
   mergedBox.t = malloc(sizeof(double) * mergedBox.n);
+  mergedBox.i = malloc(sizeof(double) * mergedBox.n);
 
   for(int i=0; i<box1.n; i++) {
     mergedBox.x[i] = box1.x[i];
     mergedBox.y[i] = box1.y[i];
     mergedBox.z[i] = box1.z[i];
     mergedBox.t[i] = box1.t[i];
+    mergedBox.i[i] = box1.i[i];
   }
   for(int j=box1.n; j<mergedBox.n; j++) {
     mergedBox.x[j] = box2.x[j-box1.n];
     mergedBox.y[j] = box2.y[j-box1.n];
     mergedBox.z[j] = box2.z[j-box1.n];
     mergedBox.t[j] = box2.t[j-box1.n];
+    mergedBox.i[j] = box2.i[j-box1.n];
   }
 
   //printf("Merged box size: %i \n", mergedBox.n);
@@ -897,6 +951,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
     boxes[i].y = malloc(sizeof(double) * inputBox.n);
     boxes[i].z = malloc(sizeof(double) * inputBox.n);
     boxes[i].t = malloc(sizeof(double) * inputBox.n);
+    boxes[i].i = malloc(sizeof(double) * inputBox.n);
   }
   double maxX = max(inputBox.x,inputBox.n);
   double maxY = max(inputBox.y,inputBox.n);
@@ -915,6 +970,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[0].y[boxes[0].n] = inputBox.y[i];
       boxes[0].z[boxes[0].n] = inputBox.z[i];
       boxes[0].t[boxes[0].n] = inputBox.t[i];
+      boxes[0].i[boxes[0].n] = inputBox.i[i];
       boxes[0].n++;
     }
     // (0,1)
@@ -923,6 +979,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[1].y[boxes[1].n] = inputBox.y[i];
       boxes[1].z[boxes[1].n] = inputBox.z[i];
       boxes[1].t[boxes[1].n] = inputBox.t[i];
+      boxes[1].i[boxes[1].n] = inputBox.i[i];
       boxes[1].n++;
     }
     // (1,0)
@@ -931,6 +988,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[2].y[boxes[2].n] = inputBox.y[i];
       boxes[2].z[boxes[2].n] = inputBox.z[i];
       boxes[2].t[boxes[2].n] = inputBox.t[i];
+      boxes[2].i[boxes[2].n] = inputBox.i[i];
       boxes[2].n++;
     }
     // (1,1)
@@ -939,6 +997,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       boxes[3].y[boxes[3].n] = inputBox.y[i];
       boxes[3].z[boxes[3].n] = inputBox.z[i];
       boxes[3].t[boxes[3].n] = inputBox.t[i];
+      boxes[3].i[boxes[3].n] = inputBox.i[i];
       boxes[3].n++;
     }
   }
@@ -1000,6 +1059,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
     free(boxes[i].y);
     free(boxes[i].z);
     free(boxes[i].t);
+    free(boxes[i].i);
   }
   printf("2 way split - 0: %i 1: %i \n", boxes[0].n, boxes[1].n);
   numBoxes = 2;
@@ -1023,6 +1083,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
       ((*finalBoxes)[current_n]).y = boxes[i].y;
       ((*finalBoxes)[current_n]).z = boxes[i].z;
       ((*finalBoxes)[current_n]).t = boxes[i].t;
+      ((*finalBoxes)[current_n]).i = boxes[i].i;
       // increment the number of boxes
       (*finalNumBoxes)++;
     }
@@ -1041,6 +1102,7 @@ struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInB
     nAndBoxes[1].y = inputBox.y;
     nAndBoxes[1].z = inputBox.z;
     nAndBoxes[1].t = inputBox.t;
+    nAndBoxes[1].i = inputBox.i;
 
     return nAndBoxes;
   }
@@ -1065,6 +1127,7 @@ struct box * control_box_division(int maxNumStationsInBox, int minNumStationsInB
     nAndBoxes[b].y = totalBoxes[b-1].y;
     nAndBoxes[b].z = totalBoxes[b-1].z;
     nAndBoxes[b].t = totalBoxes[b-1].t;
+    nAndBoxes[b].i = totalBoxes[b-1].i;
   }
   free(totalBoxes);
   // return a list of boxes
@@ -1102,7 +1165,6 @@ double mean(const double *array, int sizeArray)
     sum = sum + array[i];
   }
   double mean = sum/sizeArray;
-  //printf("Mean: %f\n", mean);
   return mean;
 }
 
@@ -1148,9 +1210,9 @@ void print_matrix(double **matrix, int rows, int columns) {
   for (int r=0; r<rows; r++)
   {
       for(int c=0; c<columns; c++)
-          {
-           printf("%.2f ", matrix[r][c]);
-          }
+      {
+         printf("%.2f ", matrix[r][c]);
+      }
       printf("\n");
    }
 }
@@ -1159,9 +1221,9 @@ void print_gsl_matrix(gsl_matrix *matrix, int rows, int columns) {
   for (int r=0; r<rows; r++)
   {
       for(int c=0; c<columns; c++)
-          {
-           printf("%.2f ", gsl_matrix_get(matrix,r,c));
-          }
+      {
+         printf("%.2f ", gsl_matrix_get(matrix,r,c));
+      }
       printf("\n");
    }
 }
@@ -1170,9 +1232,9 @@ void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop) {
   for (int r=start; r<=stop; r++)
   {
       for(int c=start; c<=stop; c++)
-          {
-           printf("%.2f ", gsl_matrix_get(matrix,r,c));
-          }
+      {
+         printf("%.2f ", gsl_matrix_get(matrix,r,c));
+      }
       printf("\n");
    }
 }

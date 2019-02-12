@@ -16,7 +16,7 @@ int main()
 {
   // Testing functions from main, but eventually have to call it from R code
   FILE *fp;
-  char *filename = "/home/louiseo/Documents/SCT/myrepo/input_for_example.txt";
+  char *filename = "input_for_example.txt";
   fp = fopen(filename, "r");
   if(fp == NULL) {
       printf("could not open file: %s \n", filename);
@@ -100,8 +100,10 @@ int main()
 
   // allocate memory for the indices
   int *flags = malloc(sizeof(int) * n);
+  double *corep = malloc(sizeof(double) * n);
+  double *pog = malloc(sizeof(double) * n);
 
-  sct_wrapper(&n, x, y, z, t, flags, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg);
+  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg, flags, corep, pog);
 
   free(x);
   free(y);
