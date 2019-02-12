@@ -47,6 +47,7 @@ int main()
   char line[lenLine];
   char delim[] = ";";
 
+  fgets(line,lenLine,fp); // Read header line
   while(fgets(line,lenLine,fp)) { // loop through lines in file
     //itot;pridtot;lon;lat;xtot;ytot;ztot;ttot;laftot;
     //printf("line: %s \n", line);
