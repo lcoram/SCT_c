@@ -693,6 +693,12 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
           int status = vertical_profile_optimizer(vp_input, currentBox, nminprof[0], vp);
           printf("status optimizer: %d\n", status);
           sizeWhenProfileCalculated = current_n;
+          printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+                  gsl_vector_get(vp_input, 0),
+                  gsl_vector_get(vp_input, 1),
+                  gsl_vector_get(vp_input, 2),
+                  gsl_vector_get(vp_input, 3),
+                  gsl_vector_get(vp_input, 4));
         }
 
         // weight the diagonal again
@@ -868,9 +874,10 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
          corep_out[i] = gsl_vector_get(d, li)*gsl_vector_get(ares, li) * -1 /sig2o;
          pog_out[i] = gsl_vector_get(pog, li);
         // does it fail the test
-        if((gsl_vector_get(cvres,li) < 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
-          (gsl_vector_get(cvres,li) >= 0 && gsl_vector_get(pog,li) > t2neg[i])) {
-          printf("throw out this piece of data: %f cvres=%f pog=%f corep=%f\n", t[i], gsl_vector_get(cvres, li), gsl_vector_get(pog,li), corep_out[i]);
+        double curr_cvres = gsl_vector_get(cvres,li);
+        if((curr_cvres < 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
+          (curr_cvres >= 0 && gsl_vector_get(pog,li) > t2neg[i])) {
+          printf("throw out this piece of data: %f cvres=%f pog=%f corep=%f\n", t[i], curr_cvres, gsl_vector_get(pog,li), corep_out[i]);
           throwOut = throwOut + 1;
           flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
