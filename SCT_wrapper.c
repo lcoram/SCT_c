@@ -641,7 +641,7 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
         int li = 0;
         for(int i=0; i<n; i++) { // this needs to loop over current_n
           if(flags[i] == 2) { // stations flagged for removal
-            printf("Removing column - li: %i, i: %i \n", li, i);
+            printf("Removing column - li: %i, i: %i with temperature: %f \n", li, i, t[i]);
             flags[i] = 1; // newly removed station now set to 1
           }
           else if(flags[i] == 0){ // all rows and columns that we want to keep
