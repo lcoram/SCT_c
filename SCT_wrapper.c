@@ -809,12 +809,8 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
     // cvres<--Zinv*SRinv.d
     gsl_vector *cvres;
     cvres = gsl_vector_alloc(current_n);
-    li = 0;
-    for(int i=0; i<current_n; i++) {
-      if(flags[i] == 0) {
-        gsl_vector_set(cvres,li,-1*gsl_vector_get(Zinv,li));
-        li++;
-      }
+    for(int li=0; li<current_n; li++) {
+       gsl_vector_set(cvres,li,-1*gsl_vector_get(Zinv,li));
     }
     gsl_vector_mul(cvres,Sinv_d); // multiplies -Zinv(initial cvres) by Sinv_d (result stored in cvres)
 
@@ -822,22 +818,15 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
     gsl_vector *sig2o_temp, *negAres_temp;
     sig2o_temp = gsl_vector_alloc(current_n);
     negAres_temp = gsl_vector_alloc(current_n);
-    li = 0;
-    for(int i=0; i<n; i++) {
-      if(flags[i] == 0) {
-        gsl_vector_set(negAres_temp,li,-1*gsl_vector_get(ares,li));
-        li++;
-      }
+    for(int li=0; li<current_n; li++) {
+       gsl_vector_set(negAres_temp,li,-1*gsl_vector_get(ares,li));
     }
     gsl_vector_memcpy(sig2o_temp,d); // copies d into sig2o_temp
     gsl_vector_mul(sig2o_temp,negAres_temp); // multiplies d by -ares
     double sig2o = 0;
-    li = 0;
-    for(int i=0; i<n; i++) {
-      if(flags[i] == 0) {
+
+    for(int li=0; li<current_n; li++) {
         sig2o = sig2o + gsl_vector_get(sig2o_temp,li);
-        li++;
-      }
     }
     //printf("d: ");
     //print_gsl_vector(d,current_n);
