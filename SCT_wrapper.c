@@ -31,7 +31,7 @@
  * Outputs:
  *    flags: Output array of flags, one for each station. 0 means passed the SCT, 1 means fails.
  * */
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double *corep, double *pog);
 
 /*
  * Structure to contain station information for a box
@@ -45,7 +45,7 @@ struct box {
   int *i;
 };
 
-void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
+void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double *corep, double *pog);
 
 int vertical_profile_optimizer(gsl_vector *input, struct box *currentBox, int nminprof, double *vp);
 // optimizer functions
@@ -73,7 +73,7 @@ gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog) {
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double *corep, double *pog) {
 
   // put the input box in the struct
   struct box inputBox;
@@ -108,6 +108,7 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
     int* local_flags = malloc(sizeof(int) * box_n);
     double* local_t2pos = malloc(sizeof(double) * box_n);
     double* local_t2neg = malloc(sizeof(double) * box_n);
+    double* local_eps2 = malloc(sizeof(double) * box_n);
     double* local_corep = malloc(sizeof(double) * box_n);
     double* local_pog = malloc(sizeof(double) * box_n);
     for(int r = 0; r < box_n; r++) {
@@ -116,10 +117,11 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
        assert(box_i[r] < n[0]);
        local_t2pos[r] = t2pos[box_i[r]];
        local_t2neg[r] = t2neg[box_i[r]];
+       local_eps2[r] = eps2[box_i[r]];
        local_corep[r] = corep[box_i[r]];
        local_pog[r] = pog[box_i[r]];
     }
-    spatial_consistency_test(&nAndBoxes[i], nminprof, gam, as, local_t2pos, local_t2neg, local_flags, local_corep, local_pog);
+    spatial_consistency_test(&nAndBoxes[i], nminprof, gam, as, local_t2pos, local_t2neg, local_eps2, local_flags, local_corep, local_pog);
 
     for(int r = 0; r < box_n; r++) {
        assert(box_i[r] < n[0]);
@@ -129,6 +131,7 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
     }
     free(local_t2pos);
     free(local_t2neg);
+    free(local_eps2);
     free(local_flags);
     free(local_corep);
     free(local_pog);
@@ -427,7 +430,7 @@ void vertical_profile(int nz, double *z,
 #   been applied; (ii) -1 if just one station in the domain
 #
 */
-void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, int *flags, double* corep_out, double* pog_out)
+void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double* corep_out, double* pog_out)
 {
   // break out the box for simplicity
   int n = currentBox[0].n;
@@ -555,8 +558,7 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
       double value = exp(-.5*pow((disth[i][j]/Dh_mean),2)-.5*pow((distz[i][j]/Dz),2));
       S_global[i][j] = value;
       if(i == j) { // weight the diagonal?? (0.5 default)
-        // TODO: make this added value user provided
-        value = value + 0.5;
+        value = value + eps2[i];
       }
       gsl_matrix_set(S,i,j,value);
       //gsl_matrix_set(Sinv,i,j,value); // not yet inverted, but need a copy of S
@@ -597,8 +599,7 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
 
       // UN-weight the diagonal of S
       for(int i=0; i<current_n; i++) {
-        // TODO: make this added value user provided
-        double value = gsl_matrix_get(S,i,i) - 0.5;
+        double value = gsl_matrix_get(S,i,i) - eps2[i];
         gsl_matrix_set(S,i,i,value);
       }
       //printf("S first\n");
@@ -702,10 +703,13 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
         }
 
         // weight the diagonal again
-        for(int i=0; i<current_n; i++) {
-          // TODO: make this added value user provided
-          double value = gsl_matrix_get(S,i,i) + 0.5;
-          gsl_matrix_set(S,i,i,value);
+        li = 0;
+        for(int i=0; i<n; i++) {
+          if(flags[i] == 0){
+             double value = gsl_matrix_get(S,li,li) + eps2[i];
+             gsl_matrix_set(S,li,li,value);
+             li++;
+          }
         }
         gsl_matrix_free(Sinv); // free the old Sinv
         Sinv = gsl_matrix_alloc(current_n,current_n);
@@ -721,10 +725,13 @@ void spatial_consistency_test(struct box *currentBox, int *nminprof, double *gam
         printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
 
         // UN-weight the diagonal of S
-        for(int i=0; i<current_n; i++) {
-          // TODO: make this added value user provided
-          double value = gsl_matrix_get(S,i,i) - 0.5;
-          gsl_matrix_set(S,i,i,value);
+        li = 0;
+        for(int i=0; i<n; i++) {
+          if(flags[i] == 0){
+             double value = gsl_matrix_get(S,li,li) - eps2[i];
+             gsl_matrix_set(S,li,li,value);
+             li++;
+          }
         }
 
       }

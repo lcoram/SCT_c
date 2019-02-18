@@ -31,12 +31,14 @@ int main()
   double *t;
   double *t2pos;
   double *t2neg;
+  double *eps2;
   z = malloc(sizeof(double) * 50000);
   x = malloc(sizeof(double) * 50000);
   y = malloc(sizeof(double) * 50000);
   t = malloc(sizeof(double) * 50000);
   t2pos = malloc(sizeof(double) * 50000);
   t2neg = malloc(sizeof(double) * 50000);
+  eps2 = malloc(sizeof(double) * 50000);
   int n = 0;
   if (!z || !x || !y || !t) { /* If data == 0 after the call to malloc, allocation failed for some reason */
     printf("Error allocating memory \n");
@@ -97,6 +99,7 @@ int main()
   for(int i=0; i<n; i++) {
     t2pos[i] = 4;
     t2neg[i] = 8;
+    eps2[i] = 0.5;
   }
 
   // allocate memory for the indices
@@ -107,7 +110,7 @@ int main()
   // void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof,
   // double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
 
-  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg, flags, corep, pog);
+  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg, eps2, flags, corep, pog);
 
   FILE *out1;
   out1 = fopen("output.txt", "w");
