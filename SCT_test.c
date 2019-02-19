@@ -12,11 +12,13 @@
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_blas.h>
 #include "SCT_wrapper.c"
-int main()
+int main(int argc, const char* argv[])
 {
   // Testing functions from main, but eventually have to call it from R code
   FILE *fp;
-  char *filename = "input_for_example.txt";
+  const char *filename = "input_for_example.txt";
+  if(argc == 2)
+     filename = argv[1];
   fp = fopen(filename, "r");
   if(fp == NULL) {
       printf("could not open file: %s \n", filename);
@@ -52,15 +54,15 @@ int main()
   fgets(line,lenLine,fp); // Read header line
   while(fgets(line,lenLine,fp)) { // loop through lines in file
     //itot;pridtot;lon;lat;xtot;ytot;ztot;ttot;laftot;
-    //printf("line: %s \n", line);
+    // printf("line: %s \n", line);
     char *ptr = strtok(line, delim);
     int j = 0; // index inside line
     bool mybox = false;
     while(ptr != NULL) { // break up line
       // if itot == 266 then in oslo box
-      if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
+      //if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
         mybox = true;
-      }
+      //}
       if(mybox) {
         if(j == 4) { //easting
           x[n] = atof(ptr);
@@ -91,10 +93,11 @@ int main()
   int maxNumStationsInBox = 1000;
   int minNumStationsInBox = 100;
   int nminprof = 100;
+  double dzmin = 30;
+  double dhmin = 10000;
+  double dz = 200;
 
   // initial variables for VP (passed into function)
-  double gamma = -0.0065;
-  double a = 5;
   // variables for SCT
   for(int i=0; i<n; i++) {
     t2pos[i] = 4;
@@ -104,13 +107,10 @@ int main()
 
   // allocate memory for the indices
   int *flags = malloc(sizeof(int) * n);
-  double *corep = malloc(sizeof(double) * n);
-  double *pog = malloc(sizeof(double) * n);
+  double *rep = malloc(sizeof(double) * n);
+  double *sct = malloc(sizeof(double) * n);
 
-  // void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof,
-  // double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
-
-  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg, eps2, flags, corep, pog);
+  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &dzmin, &dhmin, &dz, t2pos, t2neg, eps2, flags, sct, rep);
 
   FILE *out1;
   out1 = fopen("output.txt", "w");
@@ -133,10 +133,10 @@ int main()
     sprintf(str_temp,"%d",flags[j]);
     strcat(str,str_temp);
     strcat(str,";");
-    sprintf(str_temp,"%f",corep[j]);
+    sprintf(str_temp,"%f",rep[j]);
     strcat(str,str_temp);
     strcat(str,";");
-    sprintf(str_temp,"%f",pog[j]);
+    sprintf(str_temp,"%f",sct[j]);
     strcat(str,str_temp);
     strcat(str,";");
     fputs(str,out1);
