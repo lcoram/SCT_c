@@ -41,7 +41,7 @@ Outputs:
 Compiling to library:
    gcc SCT_wrapper.c -fPIC -lgslcblas -lgsl -lblas -L/usr/lib -lm -shared -o SCT_wrapper.so
 */
-void sct_wrapper(int *n,
+void sct_smart_boxes(int *n,
                  double *x,
                  double *y,
                  double *z,
@@ -102,7 +102,7 @@ void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop);
 gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double *sct, double *rep) {
+void sct_smart_boxes(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double *sct, double *rep) {
 
   // put the input box in the struct
   struct Box inputBox;
