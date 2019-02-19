@@ -12,29 +12,33 @@
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_blas.h>
 
-// export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/
-// compile: gcc -L/user/local/lib SCT_wrapper.c -lm -lgsl -lgslcblas
-
-
-/*
-Runs the SCT by splitting into boxes first
+/* Runs the SCT by splitting into boxes first
 
 Arguments:
-   n: Number of stations, specifies array lengths
+   n: Number of stations, specifies lengths of x, y, z, t arrays:
    x: Array of x-position [m]
    y: Array of y-position [m]
    z: Array of station altitudes [m]
    t: Array of temperatures (in any units)
-   nmax: Pointer to one int. Split a box into two if it contains more than this number of stations.
-   nmin: Don't allow boxes to have fewer than this
-   nminprof: Revert to basic atmospheric profile if fewer than this number of stations
-   dzmin: minimum elevation range to fit a vertical profile [m]
-   dhmin: minimum value for OI horizontal decorellation length [m]
-   dz: OI vertical decorellation length [m]
-   gam:
+   nmax: Pointer to one int. Split a box into two if it contains more than this number of stations. Suggested value: 1000.
+   nmin: Don't allow boxes to have fewer than this. Suggested value: 100.
+   nminprof: Revert to basic atmospheric profile if fewer than this number of stations. Suggested value: 50.
+   dzmin: minimum elevation range to fit a vertical profile [m]. Suggested value: 30
+   dhmin: minimum value for OI horizontal decorellation length [m]. Suggested value: 10000
+   dz: OI vertical decorellation length [m]. Suggested value: 200
+   t2pos: Flag an observation if it exceeds this SCT value above the background [^oC]
+     One value for each station. Suggested values: 4
+   t2neg: Flag an observation if it is below this SCT value below the background [^oC]
+     One value for each station. Suggested values: 4
+   eps2: Epsilon squared. One value for each station. Suggested values: 0.5
 
 Outputs:
    flags: Output array of flags, one for each station. 0 means passed the SCT, 1 means fails.
+   sct: Output array of sct-values (cross validation deviation), one for each station.
+   rep: Output array of station coefficient of representativity, one for each station.
+
+Compiling to library:
+   gcc SCT_wrapper.c -fPIC -lgslcblas -lgsl -lblas -L/usr/lib -lm -shared -o SCT_wrapper.so
 */
 void sct_wrapper(int *n,
                  double *x,
@@ -47,33 +51,31 @@ void sct_wrapper(int *n,
                  double* dzmin,
                  double* dhmin,
                  double* dz,
-                 double *gam,
-                 double *as,
                  double *t2pos,
                  double *t2neg,
                  double *eps2,
                  int *flags,
-                 double *corep,
-                 double *pog);
+                 double *sct,
+                 double *rep);
 
-/*
-Structure to contain station information for a box
-*/
+// Structure to contain station information for a box
 struct Box {
-  int  n;
+  int  n; // Number of stations in box
   double *x;
   double *y;
   double *z;
   double *t;
-  int *i;
+  int *i;  // Index into global array
 };
 
+// Structure to contain a list of boxes
 struct BoxList {
-   int n;
+   int n; // Number of boxes
    struct Box* boxes;
 };
 
-void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzmin, double* dhmin, double* dz, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double* corep_out, double* pog_out);
+// Run the SCT on a particular box
+void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double* sct_out, double* rep_out);
 
 int vertical_profile_optimizer(gsl_vector *input, struct Box *currentBox, int nminprof, double dzmin, double *vp);
 // optimizer functions
@@ -96,12 +98,10 @@ void print_gsl_vector(gsl_vector *vector, int size);
 void print_matrix(double **matrix, int rows, int columns);
 void print_gsl_matrix(gsl_matrix *matrix, int rows, int columns);
 void print_sub_gsl_matrix(gsl_matrix *matrix, int start, int stop);
-
 gsl_matrix* inverse_matrix(const gsl_matrix *matrix);
 
-
 //----------------------------------------------------------------------------//
-void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double* dzmin, double* dhmin, double* dz, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double *corep, double *pog) {
+void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double *sct, double *rep) {
 
   // put the input box in the struct
   struct Box inputBox;
@@ -133,8 +133,8 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
     double* local_t2pos = malloc(sizeof(double) * box_n);
     double* local_t2neg = malloc(sizeof(double) * box_n);
     double* local_eps2 = malloc(sizeof(double) * box_n);
-    double* local_corep = malloc(sizeof(double) * box_n);
-    double* local_pog = malloc(sizeof(double) * box_n);
+    double* local_rep = malloc(sizeof(double) * box_n);
+    double* local_sct = malloc(sizeof(double) * box_n);
 
     // Extract values for the current box into contiguous arrays
     for(int r = 0; r < box_n; r++) {
@@ -144,24 +144,24 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
        local_t2pos[r] = t2pos[box_i[r]];
        local_t2neg[r] = t2neg[box_i[r]];
        local_eps2[r] = eps2[box_i[r]];
-       local_corep[r] = corep[box_i[r]];
-       local_pog[r] = pog[box_i[r]];
+       local_rep[r] = rep[box_i[r]];
+       local_sct[r] = sct[box_i[r]];
     }
-    spatial_consistency_test(&box_list.boxes[i], nminprof, dzmin, dhmin, dz, gam, as, local_t2pos, local_t2neg, local_eps2, local_flags, local_corep, local_pog);
+    spatial_consistency_test(&box_list.boxes[i], nminprof, dzmin, dhmin, dz, local_t2pos, local_t2neg, local_eps2, local_flags, local_sct, local_rep);
 
     // Merge flags back into global array
     for(int r = 0; r < box_n; r++) {
        assert(box_i[r] < n[0]);
        flags[box_i[r]] = local_flags[r];
-       corep[box_i[r]] = local_corep[r];
-       pog[box_i[r]] = local_pog[r];
+       rep[box_i[r]] = local_rep[r];
+       sct[box_i[r]] = local_sct[r];
     }
     free(local_t2pos);
     free(local_t2neg);
     free(local_eps2);
     free(local_flags);
-    free(local_corep);
-    free(local_pog);
+    free(local_rep);
+    free(local_sct);
 
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
@@ -414,7 +414,7 @@ Lussana, C., Uboldi, F., & Salvati, M. R. (2010). A spatial consistency
 test for surface observations from mesoscale meteorological networks.
 Quarterly Journal of the Royal Meteorological Society, 136(649), 1075-1088.
 */
-void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzmin, double* dhmin, double* dz, double *gam, double *as, double *t2pos, double *t2neg, double *eps2, int *flags, double* corep_out, double* pog_out)
+void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double* sct_out, double* rep_out)
 {
   // break out the box for simplicity
   int n = currentBox[0].n;
@@ -432,8 +432,8 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
   /*
   Stuff for VP
   */
-  double gamma = gam[0];
-  double a = as[0];
+  double gamma = -0.0065;
+  double a = 5.0;
   double meanT = mean(t,n);
   // allocate for output
   double *vp = malloc(sizeof(double) * n);
@@ -836,13 +836,13 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
     for(int i=0; i<n; i++) {
       if(flags[i] == 0) {
          assert(sig2o > 0);
-         corep_out[i] = gsl_vector_get(d, li)*gsl_vector_get(ares, li) * -1 /sig2o;
-         pog_out[i] = gsl_vector_get(pog, li);
+         rep_out[i] = gsl_vector_get(d, li)*gsl_vector_get(ares, li) * -1 /sig2o;
+         sct_out[i] = gsl_vector_get(pog, li);
         // does it fail the test
         double curr_cvres = gsl_vector_get(cvres,li);
         if((curr_cvres < 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
           (curr_cvres >= 0 && gsl_vector_get(pog,li) > t2neg[i])) {
-          printf("throw out this piece of data: %f cvres=%f pog=%f corep=%f\n", t[i], curr_cvres, gsl_vector_get(pog,li), corep_out[i]);
+          printf("throw out this piece of data: %f cvres=%f sct=%f rep=%f\n", t[i], curr_cvres, gsl_vector_get(pog,li), rep_out[i]);
           throwOut = throwOut + 1;
           flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
