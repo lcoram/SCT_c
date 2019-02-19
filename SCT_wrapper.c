@@ -11,6 +11,7 @@
 #include <gsl/gsl_statistics.h>
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_blas.h>
+#define DEBUG 1
 
 /* Runs the SCT by splitting into boxes first
 
@@ -118,16 +119,15 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
   struct BoxList box_list = control_box_division(nmax[0], nmin[0], inputBox);
 
   int nB = box_list.n;
-  printf("SCT wrapper - number of boxes after division: %i \n", nB);
+  // printf("SCT wrapper - splitting into %i boxes\n", nB);
 
   // loop over the boxes to call SCT
   for(int i=0; i<nB; i++) {
     int box_n = box_list.boxes[i].n;
     int * box_i = box_list.boxes[i].i;
-    printf("box: %i \n", i);
+    // printf("box: %i \n", i);
 
     // Run the SCT on the current box
-    printf("num stations before SCT: %d \n", box_n);
     clock_t start = clock(), diff;
     int* local_flags = malloc(sizeof(int) * box_n);
     double* local_t2pos = malloc(sizeof(double) * box_n);
@@ -138,8 +138,6 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
 
     // Extract values for the current box into contiguous arrays
     for(int r = 0; r < box_n; r++) {
-       if(!(box_i[r] < n[0]))
-          printf("%d %d\n", box_i[r], n[0]);
        assert(box_i[r] < n[0]);
        local_t2pos[r] = t2pos[box_i[r]];
        local_t2neg[r] = t2neg[box_i[r]];
@@ -165,10 +163,9 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
 
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
-    printf("SCT end - Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
-    printf("num stations after SCT: %d \n", box_n);
+    // printf("SCT wrapper - Time taken %d seconds %d milliseconds \n", msec/1000, msec%1000);
 
-  } // end of looping over boxes
+  }
   free(inputBox.i);
   return;
 }
@@ -214,31 +211,20 @@ int vertical_profile_optimizer(gsl_vector *input, struct Box *currentBox, int nm
 
   s = gsl_multimin_fminimizer_alloc (T, 5);
   gsl_multimin_fminimizer_set (s, &vp_optim, input, ss);
-  do
-    {
-      iter++;
-      status = gsl_multimin_fminimizer_iterate(s);
+  do {
+    iter++;
+    status = gsl_multimin_fminimizer_iterate(s);
 
-      if (status)
-        break;
+    if (status)
+      break;
 
-      size = gsl_multimin_fminimizer_size (s);
-      status = gsl_multimin_test_size (size, 1e-2);
+    size = gsl_multimin_fminimizer_size (s);
+    status = gsl_multimin_test_size (size, 1e-2);
 
-      if (status == GSL_SUCCESS)
-        {
-          printf ("converged to minimum at\n");
-        }
-      //printf ("iter= %5d f()= %10.3e size= %.3f\n", iter, s->fval, size);
-      /*
-      printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-              gsl_vector_get (s->x, 0),
-              gsl_vector_get (s->x, 1),
-              gsl_vector_get (s->x, 2),
-              gsl_vector_get (s->x, 3),
-              gsl_vector_get (s->x, 4));
-              */
+    if (status == GSL_SUCCESS) {
+     // printf ("converged to minimum at\n");
     }
+  }
   while (status == GSL_CONTINUE && iter < 100);
 
   gsl_vector_set(input,0,gsl_vector_get(s->x, 0));
@@ -354,9 +340,7 @@ double vertical_profile_optimizer_function(const gsl_vector *v, void *data)
   double total = 0;
   for(int i=0; i<n; i++) {
     total += pow((t_out[i]-t[i]),2);
-    //printf("%f", t_out[i]);
   }
-  //printf("\n");
   double value = log(pow((total / n),0.5));
 
   //printf("first values in t_out %f %f %f\n", t_out[0], t_out[1], t_out[2]);
@@ -422,7 +406,6 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
   double *y = currentBox[0].y;
   double *z = currentBox[0].z;
   double *t = currentBox[0].t;
-  printf("SCT - number stations %i \n", n);
 
   // fill with 0 to keep track of stations that are flagged
   for(int i=0; i<n; i++) {
@@ -451,17 +434,17 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
   gsl_vector_set(vp_input,2,a);
   gsl_vector_set(vp_input,3,exact_p10);
   gsl_vector_set(vp_input,4,exact_p90);
-  printf ("VP input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-          meanT, gamma, a, exact_p10, exact_p90);
-  // calculate VP
+  // printf ("VP input vector set = t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n", meanT, gamma, a, exact_p10, exact_p90);
+
+  // calculate background
   int status = vertical_profile_optimizer(vp_input, currentBox, nminprof[0], dzmin[0], vp);
-  printf("status optimizer: %d\n", status);
-  printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
-          gsl_vector_get(vp_input, 0),
-          gsl_vector_get(vp_input, 1),
-          gsl_vector_get(vp_input, 2),
-          gsl_vector_get(vp_input, 3),
-          gsl_vector_get(vp_input, 4));
+  // printf("status optimizer: %d\n", status);
+  // printf ("t0: %.4f gamma: %.4f a: %.4f h0: %.4f h1i: %.4f\n",
+  //         gsl_vector_get(vp_input, 0),
+  //         gsl_vector_get(vp_input, 1),
+  //         gsl_vector_get(vp_input, 2),
+  //         gsl_vector_get(vp_input, 3),
+  //         gsl_vector_get(vp_input, 4));
   // now have temperature profile (vp)
   for(int i=0; i<n; i++) {
     assert(vp[i] !=-999);
@@ -481,7 +464,6 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
     distz[i] = malloc(sizeof(double)*n);
     double *Dh_vector = malloc(sizeof(double)*(n-1)); // need to remove one since not considering the diagonal
     for(int j=0; j<n; j++) {
-      //printf("i %i j %i \n", i, j);
       disth[i][j] = pow((pow((x[i]-x[j]),2)+pow((y[i]-y[j]),2)),0.5);
       distz[i][j] = abs(z[i]-z[j]);
       if(i != j) { // do not want to consider the diagonal
@@ -501,11 +483,11 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
   // either Dhmin or the average 10-percentile of the set of distances between a
   // station and all the others
   double Dh_mean = mean(Dh,n);
-  printf("Dh: %f\n", Dh_mean);
+  // printf("Dh: %f\n", Dh_mean);
   if(Dh_mean < dhmin[0]) {
     Dh_mean = dhmin[0];
   }
-  printf("Dh_mean: %f\n", Dh_mean);
+  // printf("Dh_mean: %f\n", Dh_mean);
 
   // background error correlation matrix
   float Dz = 200; // good value (use this default)
@@ -527,7 +509,7 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
       //gsl_matrix_set(Sinv,i,j,value); // not yet inverted, but need a copy of S
     }
   }
-  printf("created the S matrix - size1 %lu size2 %lu \n", S->size1, S->size2);
+  // printf("created the S matrix - size1 %lu size2 %lu \n", S->size1, S->size2);
   //print_gsl_matrix(S,n,n);
 
   // d<-topt-tb
@@ -558,7 +540,7 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
       //gsl_linalg_cholesky_invert(Sinv); // in place
       diff = clock() - start;
       int msec = diff * 1000 / CLOCKS_PER_SEC;
-      printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
+      // printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
 
       // UN-weight the diagonal of S
       for(int i=0; i<current_n; i++) {
@@ -685,7 +667,7 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
         //gsl_linalg_cholesky_invert(Sinv); // in place
         diff = clock() - start;
         int msec = diff * 1000 / CLOCKS_PER_SEC;
-        printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
+        // printf("Time taken to invert matrix %d seconds %d milliseconds \n", msec/1000, msec%1000);
 
         // UN-weight the diagonal of S
         li = 0;
@@ -703,24 +685,10 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
       //printf("Sinv\n");
       //print_gsl_matrix(Sinv, current_n, current_n);
 
-      // implent to remove only one station at once (faster?)
-      /*
-      else { //throwout == 1
-        # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
-        aux<-SRinv
-        SRinv<-aux[-indx,-indx]-(tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
-        S<-S[-indx,-indx]
-        eps2.vec<-eps2.vec[-indx]
-        rm(aux)
-        aux = gsl_matrix_alloc(current_n,current_n);
-        gsl_matrix_transpose_memcpy(aux, Sinv); // aux is now the transpose of Sinv
-        gsl_matrix_free(aux);
-      }
-      */
     } // end else
-    printf("Current n (end of matrix and vector updates) %i \n", current_n);
-    printf("d size %lu \n", d->size);
-    printf("S size1 %lu size2 %lu \n", S->size1, S->size2);
+    // printf("Current n (end of matrix and vector updates) %i \n", current_n);
+    // printf("d size %lu \n", d->size);
+    // printf("S size1 %lu size2 %lu \n", S->size1, S->size2);
     assert(d->size == current_n);
     assert(S->size1 == current_n);
     assert(S->size2 == current_n);
@@ -805,14 +773,13 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
         sig2o = sig2o + gsl_vector_get(sig2o_temp,li);
     }
     sig2o = sig2o/current_n;
-    printf("sig2o: %f\n", sig2o);
+    // printf("sig2o: %f\n", sig2o);
     gsl_vector_free(sig2o_temp);
     gsl_vector_free(negAres_temp);
 
     assert(sig2o > 0); // really should never have negative sig2o
     if(sig2o < 0.01) {
       sig2o = 0.01;
-      printf("using backup sig2o: %f\n", sig2o);
     }
 
     // pog[sel]<-(ares*cvres)/sig2o
@@ -821,13 +788,10 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
     pog_temp = gsl_vector_alloc(current_n);
     gsl_vector_memcpy(pog_temp,ares); // copies ares into pog_temp
     gsl_vector_mul(pog_temp,cvres); // multiplies ares by cvres
-    //printf("pog: ");
 
     for(int li=0; li<current_n; li++) {
       gsl_vector_set(pog,li,(gsl_vector_get(pog_temp,li)/sig2o));
-      //printf(" %f", gsl_vector_get(pog,i));
     }
-    //printf("\n");
     gsl_vector_free(pog_temp);
 
     // figure out if we should flag a station
@@ -842,14 +806,14 @@ void spatial_consistency_test(struct Box *currentBox, int *nminprof, double* dzm
         double curr_cvres = gsl_vector_get(cvres,li);
         if((curr_cvres < 0 && gsl_vector_get(pog,li) > t2pos[i]) ||
           (curr_cvres >= 0 && gsl_vector_get(pog,li) > t2neg[i])) {
-          printf("throw out this piece of data: %f cvres=%f sct=%f rep=%f\n", t[i], curr_cvres, gsl_vector_get(pog,li), rep_out[i]);
+          // printf("throw out this piece of data: %f cvres=%f sct=%f rep=%f\n", t[i], curr_cvres, gsl_vector_get(pog,li), rep_out[i]);
           throwOut = throwOut + 1;
           flags[i] = 2; // temporarily set to 2 so we know its a newly flagged station
         }
         li++;
       }
     }
-    printf("throw out: %i \n",throwOut);
+    // printf("throw out: %i \n",throwOut);
 
     // FREE ALL THE MEMORY !!! (but not S or d)
     gsl_vector_free(Zinv);
@@ -894,7 +858,6 @@ struct Box merge_boxes(struct Box box1, struct Box box2) {
     mergedBox.i[j] = box2.i[j-box1.n];
   }
 
-  //printf("Merged box size: %i \n", mergedBox.n);
   return mergedBox;
 }
 
@@ -962,7 +925,7 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
       boxes[3].n++;
     }
   }
-  printf("4 way split - 0: %i 1: %i 2: %i 3: %i \n", boxes[0].n, boxes[1].n, boxes[2].n, boxes[3].n);
+  // printf("4 way split - 0: %i 1: %i 2: %i 3: %i \n", boxes[0].n, boxes[1].n, boxes[2].n, boxes[3].n);
   int numBoxes = 4;
 
   // what kind of aspect ratio do the boxes have
@@ -974,7 +937,6 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
     double miY = min(boxes[0].y,boxes[0].n);
     double diffX = abs(maX - miX);
     double diffY = abs(maY - miY);
-    //printf("diff: x %f y %f \n", diffX, diffY);
   //}
 
   // first check which way it makes more sense to merge
@@ -985,13 +947,13 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
     int n2 = boxes[1].n + boxes[3].n;
     if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
       // merge vertically
-      printf("best to merge vertically \n");
+      // printf("best to merge vertically \n");
       boxes[0] = merge_boxes(boxes[0],boxes[2]);
       boxes[1] = merge_boxes(boxes[1],boxes[3]);
     }
     else {
       // merge horizontally
-      printf("had to merge horizontally \n");
+      // printf("had to merge horizontally \n");
       boxes[0] = merge_boxes(boxes[0],boxes[1]);
       boxes[1] = merge_boxes(boxes[2],boxes[3]);
     }
@@ -1002,45 +964,41 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
     int n2 = boxes[2].n + boxes[3].n;
     if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
       // merge horizontally
-      printf("best to merge horizontally \n");
+      // printf("best to merge horizontally \n");
       boxes[0] = merge_boxes(boxes[0],boxes[1]);
       boxes[1] = merge_boxes(boxes[2],boxes[3]);
     }
     else {
       // merge vertically
-      printf("had to merge vertically \n");
+      // printf("had to merge vertically \n");
       boxes[0] = merge_boxes(boxes[0],boxes[2]);
       boxes[1] = merge_boxes(boxes[1],boxes[3]);
     }
   }
   // don't need these boxes anymore
   for(int i=2; i<numBoxes; i++) {
-    printf("free box: %i \n", i);
     free(boxes[i].x);
     free(boxes[i].y);
     free(boxes[i].z);
     free(boxes[i].t);
     free(boxes[i].i);
   }
-  printf("2 way split - 0: %i 1: %i \n", boxes[0].n, boxes[1].n);
+  // printf("2 way split - 0: %i 1: %i \n", boxes[0].n, boxes[1].n);
   numBoxes = 2;
 
   // loop over the boxes
   for(int i=0; i<numBoxes; i++) {
     int n_temp = boxes[i].n;
-    //printf("still too big or return? %i i: %i \n", n_temp, i);
     if(n_temp > maxNumStationsInBox) {
-      printf("box still too big %i (being further recursively split)\n", n_temp);
+      // printf("box still too big %i (being further recursively split)\n", n_temp);
       // split the box further
       int before = box_list->n;
       split_box(maxNumStationsInBox, minNumStationsInBox, boxes[i], box_list);
       int after = box_list->n;
-      printf("BEFORE %d, AFTER %d\n", before, after);
     }
     else {
-      printf("box size: %i, being returned \n", n_temp);
+      // printf("box size: %i, being returned \n", n_temp);
       int current_n = box_list->n;
-      //printf("current total number of boxes: %i \n", current_n);
       // add to list of boxes (finalBoxes)
       box_list->boxes[current_n].n = boxes[i].n;
       box_list->boxes[current_n].x = boxes[i].x;
@@ -1050,7 +1008,6 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
       box_list->boxes[current_n].i = boxes[i].i;
       // increment the number of boxes
       box_list->n++;
-      printf("box size is now %d\n", box_list->n);
     }
   }
 }
@@ -1075,14 +1032,14 @@ struct BoxList control_box_division(int maxNumStationsInBox, int minNumStationsI
 
   struct BoxList box_list;
   int maxNumBoxes = floor(inputBox.n/minNumStationsInBox);
-  printf("allocating memory for potential max number of boxes: %i \n",  maxNumBoxes);
+  // printf("allocating memory for potential max number of boxes: %i \n",  maxNumBoxes);
   box_list.boxes = malloc(sizeof(struct Box) * maxNumBoxes);
   box_list.n = 0;
 
   // pass the outputs in by reference (so the recursive function can add to them)
   split_box(maxNumStationsInBox, minNumStationsInBox, inputBox, &box_list);
 
-  printf("total number of boxes: %i \n", box_list.n);
+  // printf("total number of boxes: %i \n", box_list.n);
   return box_list;
 }
 
