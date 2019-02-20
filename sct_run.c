@@ -11,7 +11,8 @@
 #include <gsl/gsl_statistics.h>
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_blas.h>
-#include "SCT_wrapper.c"
+#include "sct_smart_boxes.h"
+
 int main(int argc, const char* argv[])
 {
   // Testing functions from main, but eventually have to call it from R code
@@ -110,7 +111,7 @@ int main(int argc, const char* argv[])
   double *rep = malloc(sizeof(double) * n);
   double *sct = malloc(sizeof(double) * n);
 
-  sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &dzmin, &dhmin, &dz, t2pos, t2neg, eps2, flags, sct, rep);
+  sct_smart_boxes(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &dzmin, &dhmin, &dz, t2pos, t2neg, eps2, flags, sct, rep);
 
   FILE *out1;
   out1 = fopen("output.txt", "w");

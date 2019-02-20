@@ -1,4 +1,7 @@
 *.o
 *.so
 *~
-SCT_main
+sct_run
+test
+gmon.out
+output.txt
