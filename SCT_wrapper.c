@@ -92,6 +92,11 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
   int nB = nAndBoxes[0].n;
   printf("SCT wrapper - number of boxes after division: %i \n", nB);
 
+
+  // save the boxes for plotting
+  //FILE *out2;
+  //out2 = fopen("splitBoxes.txt", "w");
+
   // loop over the boxes to call SCT
   for(int i=1; i<nB+1; i++) {
     int box_n = nAndBoxes[i].n;
@@ -100,7 +105,28 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
     double * box_z = nAndBoxes[i].z;
     double * box_t = nAndBoxes[i].t;
     int * box_i = nAndBoxes[i].i;
+
     printf("box: %i \n", (i-1));
+    /*
+    //fputs("i;x;y;index",out);
+    for(int j=0; j<box_n; j++) {
+      char str_temp[10];
+      char str[30];
+      sprintf(str_temp,"%d",i);
+      strcpy(str,str_temp);
+      strcat(str,";");
+      sprintf(str_temp,"%f",box_x[j]);
+      strcat(str,str_temp);
+      strcat(str,";");
+      sprintf(str_temp,"%f",box_y[j]);
+      strcat(str,str_temp);
+      strcat(str,";");
+      sprintf(str_temp,"%d",box_i[j]);
+      strcat(str,str_temp);
+      strcat(str,";");
+      fputs(str,out2);
+      fputs("\n",out2);
+    }*/
 
     // Run the SCT on the current box
     printf("num stations before SCT: %d \n", box_n);
@@ -128,6 +154,7 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
        flags[box_i[r]] = local_flags[r];
        corep[box_i[r]] = local_corep[r];
        pog[box_i[r]] = local_pog[r];
+       //boxIDs[box_i[r]] = (i-1);
     }
     free(local_t2pos);
     free(local_t2neg);
@@ -143,6 +170,7 @@ void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, 
     printf("num stations after SCT: %d \n", box_n);
 
   } // end of looping over boxes
+  //fclose(out2);
   free(inputBox.i);
   return;
 }
@@ -946,8 +974,8 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
 
   struct box * boxes;
   // allocate memory, currently for 4 boxes
-  boxes = malloc(sizeof(struct box) * 4);
-  for(int i=0; i<4; i++) {
+  boxes = malloc(sizeof(struct box) * 2);
+  for(int i=0; i<2; i++) {
     //boxes[i].n = malloc(sizeof(int));
     boxes[i].n = 0; // set initial n
     boxes[i].x = malloc(sizeof(double) * inputBox.n);
@@ -965,107 +993,196 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct box inpu
   double halfwayY = minY + abs(abs(maxY)-abs(minY))/2;
   //printf("halfway x: %f y: %f \n", halfwayX, halfwayY);
 
-  // new boxes
+  // new potential boxes
+  int n_verticalTop = 0;
+  int n_verticalBottom = 0;
+  int n_horizontalLeft = 0;
+  int n_horizontalRight = 0;
   for(int i=0; i<inputBox.n; i++) {
     // (0,0)
     if(inputBox.x[i] < halfwayX && inputBox.y[i] < halfwayY) {
-      boxes[0].x[boxes[0].n] = inputBox.x[i];
-      boxes[0].y[boxes[0].n] = inputBox.y[i];
-      boxes[0].z[boxes[0].n] = inputBox.z[i];
-      boxes[0].t[boxes[0].n] = inputBox.t[i];
-      boxes[0].i[boxes[0].n] = inputBox.i[i];
-      boxes[0].n++;
+      n_verticalTop += 1;
+      n_horizontalLeft += 1;
     }
     // (0,1)
     if(inputBox.x[i] >= halfwayX && inputBox.y[i] < halfwayY) {
-      boxes[1].x[boxes[1].n] = inputBox.x[i];
-      boxes[1].y[boxes[1].n] = inputBox.y[i];
-      boxes[1].z[boxes[1].n] = inputBox.z[i];
-      boxes[1].t[boxes[1].n] = inputBox.t[i];
-      boxes[1].i[boxes[1].n] = inputBox.i[i];
-      boxes[1].n++;
+      n_verticalTop += 1;;
+      n_horizontalRight += 1;
     }
     // (1,0)
     if(inputBox.x[i] < halfwayX && inputBox.y[i] >= halfwayY) {
-      boxes[2].x[boxes[2].n] = inputBox.x[i];
-      boxes[2].y[boxes[2].n] = inputBox.y[i];
-      boxes[2].z[boxes[2].n] = inputBox.z[i];
-      boxes[2].t[boxes[2].n] = inputBox.t[i];
-      boxes[2].i[boxes[2].n] = inputBox.i[i];
-      boxes[2].n++;
+      n_verticalBottom += 1;
+      n_horizontalLeft += 1;
     }
     // (1,1)
     if(inputBox.x[i] >= halfwayX && inputBox.y[i] >= halfwayY) {
-      boxes[3].x[boxes[3].n] = inputBox.x[i];
-      boxes[3].y[boxes[3].n] = inputBox.y[i];
-      boxes[3].z[boxes[3].n] = inputBox.z[i];
-      boxes[3].t[boxes[3].n] = inputBox.t[i];
-      boxes[3].i[boxes[3].n] = inputBox.i[i];
-      boxes[3].n++;
+      n_verticalBottom += 1;
+      n_horizontalRight += 1;
     }
   }
-  printf("4 way split - 0: %i 1: %i 2: %i 3: %i \n", boxes[0].n, boxes[1].n, boxes[2].n, boxes[3].n);
-  int numBoxes = 4;
+  printf("2 way split (halfway) - vertical: %i, %i, horizontal: %i, %i \n", n_verticalTop, n_verticalBottom, n_horizontalLeft, n_horizontalRight);
+  int numBoxes = 0;
+  assert((n_verticalTop+n_verticalBottom) == (n_horizontalLeft+n_horizontalRight));
 
-  // what kind of aspect ratio do the boxes have
-  // is the same for all boxes currently...
-  //for(int i=0; i<numBoxes; i++) {
-    double maX = max(boxes[0].x,boxes[0].n);
-    double maY = max(boxes[0].y,boxes[0].n);
-    double miX = min(boxes[0].x,boxes[0].n);
-    double miY = min(boxes[0].y,boxes[0].n);
-    double diffX = abs(maX - miX);
-    double diffY = abs(maY - miY);
-    //printf("diff: x %f y %f \n", diffX, diffY);
-  //}
+  // what kind of aspect ratio doese the input box have
+  double maX = max(inputBox.x,inputBox.n);
+  double maY = max(inputBox.y,inputBox.n);
+  double miX = min(inputBox.x,inputBox.n);
+  double miY = min(inputBox.y,inputBox.n);
+  double widthX = abs(maX - miX);
+  double heightY = abs(maY - miY);
 
-  // first check which way it makes more sense to merge
-  // ok to merge the way that keeps the boxes squarer?
-  if(diffY < diffX) {
-    // wide boxes, so preferable to merge 0,2 + 1,3 (vertically)
-    int n1 = boxes[0].n + boxes[2].n;
-    int n2 = boxes[1].n + boxes[3].n;
-    if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
-      // merge vertically
-      printf("best to merge vertically \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[2]);
-      boxes[1] = merge_boxes(boxes[1],boxes[3]);
+  // wide boxes, so preferable to split horizontally
+  if(heightY <= widthX) {
+    if( (n_horizontalLeft > minNumStationsInBox) && (n_horizontalRight > minNumStationsInBox) ) {
+      for(int i=0; i<inputBox.n; i++) {
+        // left
+        if(inputBox.x[i] < halfwayX) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // right
+        if(inputBox.x[i] >= halfwayX) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
     }
-    else {
-      // merge horizontally
-      printf("had to merge horizontally \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[1]);
-      boxes[1] = merge_boxes(boxes[2],boxes[3]);
+    else if( (n_verticalTop > minNumStationsInBox) && (n_verticalBottom > minNumStationsInBox) ) {
+      for(int i=0; i<inputBox.n; i++) {
+        // bottom
+        if(inputBox.y[i] < halfwayY) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // top
+        if(inputBox.y[i] >= halfwayY) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
     }
   }
-  else { // diffY > diffX
-    // tall boxes, so preferable to merge 0,1 + 2,3 (horizontally)
-    int n1 = boxes[0].n + boxes[1].n;
-    int n2 = boxes[2].n + boxes[3].n;
-    if(n1 > minNumStationsInBox && n2 > minNumStationsInBox) {
-      // merge horizontally
-      printf("best to merge horizontally \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[1]);
-      boxes[1] = merge_boxes(boxes[2],boxes[3]);
+  // tall boxes, so preferable to split vertically
+  if(heightY >= widthX && numBoxes == 0) {
+    if( (n_verticalTop > minNumStationsInBox) && (n_verticalBottom > minNumStationsInBox) ) {
+      for(int i=0; i<inputBox.n; i++) {
+        // bottom
+        if(inputBox.y[i] < halfwayY) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // top
+        if(inputBox.y[i] >= halfwayY) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
     }
-    else {
-      // merge vertically
-      printf("had to merge vertically \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[2]);
-      boxes[1] = merge_boxes(boxes[1],boxes[3]);
+    else if( (n_horizontalLeft > minNumStationsInBox) && (n_horizontalRight > minNumStationsInBox) ) {
+      for(int i=0; i<inputBox.n; i++) {
+        // left
+        if(inputBox.x[i] < halfwayX) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // right
+        if(inputBox.x[i] >= halfwayX) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
     }
   }
-  // don't need these boxes anymore
-  for(int i=2; i<numBoxes; i++) {
-    printf("free box: %i \n", i);
-    free(boxes[i].x);
-    free(boxes[i].y);
-    free(boxes[i].z);
-    free(boxes[i].t);
-    free(boxes[i].i);
+  if( numBoxes == 0 ) { // boxes not yes successfully split, lets use the median
+    // find the medians
+    double * temp_x;
+    double * temp_y;
+    temp_x = malloc(sizeof(double) * inputBox.n);
+    temp_y = malloc(sizeof(double) * inputBox.n);
+    memcpy(temp_x, inputBox.x, sizeof(double)*inputBox.n);
+    memcpy(temp_y, inputBox.y, sizeof(double)*inputBox.n);
+    //printf("memcpy x1: %f y1: %f \n", temp_x[0], temp_y[0]);
+    double medianX = gsl_stats_median(temp_x,1,inputBox.n);
+    double medianY = gsl_stats_median(temp_y,1,inputBox.n);
+    printf("median x: %f y: %f \n", medianX, medianY);
+    free(temp_x);
+    free(temp_y);
+
+    // wide boxes, so preferable to split horizontally
+    if(heightY <= widthX) {
+      for(int i=0; i<inputBox.n; i++) {
+        // left
+        if(inputBox.x[i] < medianX) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // right
+        if(inputBox.x[i] >= medianX) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
+    }
+    // tall boxes, so preferable to split vertically
+    else if(heightY >= widthX) {
+      for(int i=0; i<inputBox.n; i++) {
+        // bottom
+        if(inputBox.y[i] < medianY) {
+          boxes[0].x[boxes[0].n] = inputBox.x[i];
+          boxes[0].y[boxes[0].n] = inputBox.y[i];
+          boxes[0].z[boxes[0].n] = inputBox.z[i];
+          boxes[0].t[boxes[0].n] = inputBox.t[i];
+          boxes[0].n++;
+        }
+        // top
+        if(inputBox.y[i] >= medianY) {
+          boxes[1].x[boxes[1].n] = inputBox.x[i];
+          boxes[1].y[boxes[1].n] = inputBox.y[i];
+          boxes[1].z[boxes[1].n] = inputBox.z[i];
+          boxes[1].t[boxes[1].n] = inputBox.t[i];
+          boxes[1].n++;
+        }
+      }
+      numBoxes = 2;
+    }
   }
   printf("2 way split - 0: %i 1: %i \n", boxes[0].n, boxes[1].n);
-  numBoxes = 2;
 
   // loop over the boxes
   for(int i=0; i<numBoxes; i++) {

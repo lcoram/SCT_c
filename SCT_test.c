@@ -104,22 +104,27 @@ int main()
 
   // allocate memory for the indices
   int *flags = malloc(sizeof(int) * n);
+  //int *boxIDs = malloc(sizeof(int) * n);
   double *corep = malloc(sizeof(double) * n);
   double *pog = malloc(sizeof(double) * n);
 
   // void sct_wrapper(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof,
-  // double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog);
+  // double *gam, double *as, double *t2pos, double *t2neg, int *flags, double *corep, double *pog, int *boxIDs);
 
   sct_wrapper(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &gamma, &a, t2pos, t2neg, eps2, flags, corep, pog);
 
+  /*
   FILE *out1;
   out1 = fopen("output.txt", "w");
   // save the original box for plotting
   for(int j=0; j<n; j++) {
     char str_temp[10];
     char str[100];
-    sprintf(str_temp,"%f",x[j]);
+    sprintf(str_temp,"%d",boxIDs[j]);
     strcpy(str,str_temp);
+    strcat(str,";");
+    sprintf(str_temp,"%f",x[j]);
+    strcat(str,str_temp);
     strcat(str,";");
     sprintf(str_temp,"%f",y[j]);
     strcat(str,str_temp);
@@ -143,6 +148,7 @@ int main()
     fputs("\n",out1);
   }
   fclose(out1);
+  */
 
   free(x);
   free(y);
@@ -150,6 +156,11 @@ int main()
   free(t);
   free(t2pos);
   free(t2neg);
+  free(eps2);
+  free(flags);
+  free(corep);
+  free(pog);
+  //free(boxIDs);
 
   return 0;
 }

@@ -40,7 +40,7 @@ void sct_wrapper(int *ns, double *x, double *y, double *z, double *t, int *is, i
 
 // Cristian's functions
 void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInBox,
-                             double *x, double *y, double *z, double *t, double *vp); // this is the interface to R (then need pointers)?
+                             double *x, double *y, double *z, double *t, int *indices, double *vp); // this is the interface to R (then need pointers)?
 
 int vertical_profile_optimizer(gsl_vector *input, double **data, bool basic);
 
@@ -812,7 +812,7 @@ void vertical_profile(int nz, double *z,
 #
 */
 void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInBox,
-                              double *x, double *y, double *z, double *t, double *vp)
+                              double *x, double *y, double *z, double *t, int *indices, double *vp)
                               //int *nmin, int *dzmin, int *dhmin, int *dz,
                               //int *dz_bg, double *eps2_bg, double *eps2,
                               //double *T2)
@@ -968,18 +968,6 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
 
             // actually remove the element from x,y,z,t and decrement numStationsInBox
             numStationsInBox[0]--;
-            /*
-            for(int k=0; k<numStationsInBox[0]; k++) {
-              if (k > i) {
-                // shift everything past here
-                x[k] = x[k+1];
-                y[k] = y[k+1];
-                z[k] = z[k+1];
-                t[k] = t[k+1];
-              }
-            }
-            printf("current numStations: %i \n", numStationsInBox[0]);
-            */
           }
           else if(sf == 0){ // add all rows and columns that we want to keep
             // set the element in the output
@@ -987,6 +975,8 @@ void spatial_consistency_test(double *t2, double *boxCentre, int *numStationsInB
             y[counter_i] = y[i];
             z[counter_i] = z[i];
             t[counter_i] = t[i];
+            // used to keep track of the indices being removed (or being kept)
+            indices[counter_i] = indices[i];
             // update stationFlags
             gsl_vector_set(sf_temp,counter_i,0);
             // update d
