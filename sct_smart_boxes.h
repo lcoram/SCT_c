@@ -56,7 +56,8 @@ void sct_smart_boxes(int *n,
                  double *eps2,
                  int *flags,
                  double *sct,
-                 double *rep);
+                 double *rep,
+                 int *boxids);
 
 // Structure to contain station information for a box
 struct Box {

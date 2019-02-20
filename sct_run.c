@@ -110,8 +110,9 @@ int main(int argc, const char* argv[])
   int *flags = malloc(sizeof(int) * n);
   double *rep = malloc(sizeof(double) * n);
   double *sct = malloc(sizeof(double) * n);
+  int *boxids = malloc(sizeof(int) * n);
 
-  sct_smart_boxes(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &dzmin, &dhmin, &dz, t2pos, t2neg, eps2, flags, sct, rep);
+  sct_smart_boxes(&n, x, y, z, t, &maxNumStationsInBox, &minNumStationsInBox, &nminprof, &dzmin, &dhmin, &dz, t2pos, t2neg, eps2, flags, sct, rep, boxids);
 
   FILE *out1;
   out1 = fopen("output.txt", "w");
@@ -119,25 +120,36 @@ int main(int argc, const char* argv[])
   for(int j=0; j<n; j++) {
     char str_temp[10];
     char str[100];
+    // 0
     sprintf(str_temp,"%f",x[j]);
     strcpy(str,str_temp);
     strcat(str,";");
+    // 1
     sprintf(str_temp,"%f",y[j]);
     strcat(str,str_temp);
     strcat(str,";");
+    // 2
     sprintf(str_temp,"%f",z[j]);
     strcat(str,str_temp);
     strcat(str,";");
+    // 3
     sprintf(str_temp,"%f",t[j]);
     strcat(str,str_temp);
     strcat(str,";");
+    // 4
     sprintf(str_temp,"%d",flags[j]);
     strcat(str,str_temp);
     strcat(str,";");
+    // 5
     sprintf(str_temp,"%f",rep[j]);
     strcat(str,str_temp);
     strcat(str,";");
+    // 6
     sprintf(str_temp,"%f",sct[j]);
+    strcat(str,str_temp);
+    strcat(str,";");
+    // 7
+    sprintf(str_temp,"%d",boxids[j]);
     strcat(str,str_temp);
     strcat(str,";");
     fputs(str,out1);

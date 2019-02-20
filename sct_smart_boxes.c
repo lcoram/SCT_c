@@ -13,7 +13,9 @@
 #include <gsl/gsl_blas.h>
 #include "sct_smart_boxes.h"
 
-void sct_smart_boxes(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin, int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2, int *flags, double *sct, double *rep) {
+void sct_smart_boxes(int *n, double *x, double *y, double *z, double *t, int *nmax, int *nmin,
+  int *nminprof, double* dzmin, double* dhmin, double* dz, double *t2pos, double *t2neg, double *eps2,
+  int *flags, double *sct, double *rep, int *boxids) {
    if(n[0] == 0)
       return;
 
@@ -66,6 +68,7 @@ void sct_smart_boxes(int *n, double *x, double *y, double *z, double *t, int *nm
        flags[box_i[r]] = local_flags[r];
        rep[box_i[r]] = local_rep[r];
        sct[box_i[r]] = local_sct[r];
+       boxids[box_i[r]] = i;
     }
     free(local_t2pos);
     free(local_t2neg);
