@@ -61,9 +61,9 @@ int main(int argc, const char* argv[])
     bool mybox = false;
     while(ptr != NULL) { // break up line
       // if itot == 266 then in oslo box
-      //if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
+      if(j==0 && (strcmp(ptr, "266")==0 || strcmp(ptr, " 266")==0 )) {
         mybox = true;
-      //}
+      }
       if(mybox) {
         if(j == 4) { //easting
           x[n] = atof(ptr);

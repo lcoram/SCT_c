@@ -844,16 +844,9 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
   // printf("4 way split - 0: %i 1: %i 2: %i 3: %i \n", boxes[0].n, boxes[1].n, boxes[2].n, boxes[3].n);
   int numBoxes = 4;
 
-  // what kind of aspect ratio do the boxes have
-  // is the same for all boxes currently...
-  //for(int i=0; i<numBoxes; i++) {
-    double maX = max(boxes[0].x,boxes[0].n);
-    double maY = max(boxes[0].y,boxes[0].n);
-    double miX = min(boxes[0].x,boxes[0].n);
-    double miY = min(boxes[0].y,boxes[0].n);
-    double diffX = abs(maX - miX);
-    double diffY = abs(maY - miY);
-  //}
+  // what kind of aspect ratio does input box have
+  double diffX = abs(maxX - minX);
+  double diffY = abs(maxY - minY);
 
   // first check which way it makes more sense to merge
   // ok to merge the way that keeps the boxes squarer?
@@ -868,10 +861,22 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
       boxes[1] = merge_boxes(boxes[1],boxes[3]);
     }
     else {
-      // merge horizontally
-      // printf("had to merge horizontally \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[1]);
-      boxes[1] = merge_boxes(boxes[2],boxes[3]);
+      // choose the way that keeps the best symmetry
+      int n3 = boxes[0].n + boxes[1].n;
+      int n4 = boxes[2].n + boxes[3].n;
+      int hori = abs(n3-n4);
+      int vert = abs(n1-n2);
+      if(vert > hori) {
+        // merge horizontally
+        // printf("had to merge horizontally \n");
+        boxes[0] = merge_boxes(boxes[0],boxes[1]);
+        boxes[1] = merge_boxes(boxes[2],boxes[3]);
+      }
+      else {
+        // merge vertically
+        boxes[0] = merge_boxes(boxes[0],boxes[2]);
+        boxes[1] = merge_boxes(boxes[1],boxes[3]);
+      }
     }
   }
   else { // diffY > diffX
@@ -885,10 +890,22 @@ void split_box(int maxNumStationsInBox, int minNumStationsInBox, struct Box inpu
       boxes[1] = merge_boxes(boxes[2],boxes[3]);
     }
     else {
-      // merge vertically
-      // printf("had to merge vertically \n");
-      boxes[0] = merge_boxes(boxes[0],boxes[2]);
-      boxes[1] = merge_boxes(boxes[1],boxes[3]);
+      // choose the way that keeps the best symmetry
+      int n3 = boxes[0].n + boxes[2].n;
+      int n4 = boxes[1].n + boxes[3].n;
+      int vert = abs(n3-n4);
+      int hori = abs(n1-n2);
+      if(hori > vert) {
+        // merge vertically
+        // printf("had to merge vertically \n");
+        boxes[0] = merge_boxes(boxes[0],boxes[2]);
+        boxes[1] = merge_boxes(boxes[1],boxes[3]);
+      }
+      else {
+        // merge horizontally
+        boxes[0] = merge_boxes(boxes[0],boxes[1]);
+        boxes[1] = merge_boxes(boxes[2],boxes[3]);
+      }
     }
   }
   // don't need these boxes anymore
